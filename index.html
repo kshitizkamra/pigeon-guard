@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#ff385c">
+  <title>Pigeon Guard - Standalone AI Balcony Deterrent</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="static/icon-192.png">
+  
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --card-bg: rgba(22, 28, 45, 0.95);
+      --accent-red: #ff3366;
+      --accent-green: #00e676;
+      --accent-yellow: #ffab00;
+      --accent-blue: #2979ff;
+      --text-main: #f0f4f8;
+      --text-muted: #8a99ad;
+      --border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      overflow-x: hidden;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: rgba(11, 15, 25, 0.85);
+      backdrop-filter: blur(12px);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      font-size: 22px;
+      background: linear-gradient(135deg, #ff3366, #ff758c);
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(255, 51, 102, 0.35);
+    }
+
+    .brand-text h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-text p {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .header-badges {
+      display: flex;
+      gap: 6px;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 3px 7px;
+      border-radius: 6px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+    }
+
+    .badge.green { color: var(--accent-green); border-color: rgba(0, 230, 118, 0.3); }
+    .badge.red { color: var(--accent-red); border-color: rgba(255, 51, 102, 0.3); }
+    .badge.yellow { color: var(--accent-yellow); border-color: rgba(255, 171, 0, 0.3); }
+
+    /* Fullscreen Video Viewport (Takes 100% of phone screen) */
+    .viewport-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      min-height: 100vh;
+      background: #000;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #camera-video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain; /* Full uncropped sensor view */
+      display: block;
+    }
+
+    #overlay-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* Top HUD under header */
+    .viewport-overlay-ui {
+      position: absolute;
+      top: 54px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    /* Floating Bottom HUD on Fullscreen Video */
+    .viewport-bottom-hud {
+      position: absolute;
+      bottom: 16px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 30;
+    }
+
+    .scroll-hint {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.75);
+      text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+      animation: floatHint 2s infinite ease-in-out;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    @keyframes floatHint {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(5px); }
+    }
+
+    .viewport-pill {
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(8px);
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .pill-alarm {
+      transition: all 0.3s ease;
+    }
+
+    .pill-alarm.blasting {
+      background: var(--accent-red);
+      color: #fff;
+      animation: pulse 0.6s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { transform: scale(1); box-shadow: 0 0 10px rgba(255, 51, 102, 0.8); }
+      to { transform: scale(1.08); box-shadow: 0 0 24px rgba(255, 51, 102, 1); }
+    }
+
+    /* Controls Section (Scroll Below the Video) */
+    .controls-wrapper {
+      padding: 24px 16px 50px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      background: var(--bg-color);
+      min-height: 100vh;
+      border-top: 1px solid var(--border-color);
+      z-index: 20;
+    }
+
+    /* Main Big Action Button */
+    .btn-main-guard {
+      width: 100%;
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.25s ease;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-main-guard.inactive {
+      background: linear-gradient(135deg, #00e676, #00b0ff);
+      color: #0b0f19;
+    }
+
+    .btn-main-guard.active {
+      background: linear-gradient(135deg, #ff1744, #d50000);
+      color: #fff;
+      animation: guardPulse 2s infinite ease-in-out;
+    }
+
+    @keyframes guardPulse {
+      0%, 100% { box-shadow: 0 6px 18px rgba(255, 23, 68, 0.4); }
+      50% { box-shadow: 0 8px 28px rgba(255, 23, 68, 0.8); }
+    }
+
+    /* Quick Action Buttons Row */
+    .action-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn-action {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-action:active {
+      background: rgba(255, 255, 255, 0.12);
+      transform: scale(0.98);
+    }
+
+    /* Settings Card */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .setting-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .setting-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .setting-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    select, input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent-red);
+    }
+
+    select {
+      background: #111726;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text-main);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .stat-box {
+      background: rgba(0, 0, 0, 0.25);
+      padding: 10px 8px;
+      border-radius: 10px;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .stat-val {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--accent-red);
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Intruder Snapshots */
+    .gallery-container {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+
+    .gallery-container::-webkit-scrollbar {
+      display: none;
+    }
+
+    .snapshot-card {
+      flex: 0 0 100px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
+    }
+
+    .snapshot-card img {
+      width: 100%;
+      height: 75px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .snapshot-time {
+      font-size: 9px;
+      padding: 3px 4px;
+      text-align: center;
+      background: rgba(15, 20, 30, 0.9);
+      color: var(--text-muted);
+    }
+
+    /* Offline Toast */
+    .offline-banner {
+      background: #1e293b;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 11px;
+      padding: 6px 12px;
+      text-align: center;
+      color: #94a3b8;
+    }
+  </style>
+
+  <!-- Offline-first TensorFlow.js and COCO-SSD -->
+  <script src="static/tf.min.js"></script>
+  <script src="static/coco-ssd.min.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🦅</div>
+      <div class="brand-text">
+        <h1>PIGEON GUARD</h1>
+        <p>Standalone On-Device AI</p>
+      </div>
+    </div>
+    <div class="header-badges">
+      <div id="ai-status-badge" class="badge yellow">Loading AI...</div>
+      <div id="battery-badge" class="badge">🔋 --%</div>
+    </div>
+  </header>
+
+  <!-- Pixel / Android Native Install Banner -->
+  <div id="pixel-install-banner" style="display:none; background: linear-gradient(135deg, #ff3366, #ff758c); color:#fff; padding: 10px 16px; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600;">
+    <span>📲 Install Pigeon Guard App to Home Screen</span>
+    <button id="btn-native-install" style="background:#fff; color:#0b0f19; border:none; border-radius:8px; padding:6px 12px; font-weight:700; cursor:pointer;">INSTALL</button>
+  </div>
+
+  <div class="offline-banner">
+    ✨ 100% On-Device • No Wi-Fi or Internet Required once opened
+  </div>
+
+  <!-- Camera Viewport with Detection Overlays -->
+  <div class="viewport-container" id="viewport">
+    <video id="camera-video" autoplay playsinline muted></video>
+    <canvas id="overlay-canvas"></canvas>
+
+    <!-- Tap to Activate Camera Prompt (Crucial for Pixel Chrome gesture requirement) -->
+    <div id="camera-permission-prompt" style="display:none; position:absolute; inset:0; z-index:40; background:rgba(11,15,25,0.92); flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;">
+      <div style="font-size:36px; margin-bottom:12px;">📷</div>
+      <div style="font-size:16px; font-weight:700; margin-bottom:6px;">Camera Access Needed</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:16px; max-width:260px;">Google Pixel requires a tap to activate camera permissions.</div>
+      <button id="btn-request-cam" class="btn-main-guard inactive" style="width:auto; padding:12px 20px; font-size:14px;">
+        Tap to Enable Camera
+      </button>
+    </div>
+
+    <div class="viewport-overlay-ui">
+      <!-- Main Status & Camera Bar -->
+      <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
+        <div class="viewport-pill" id="fps-counter" style="white-space:nowrap;">FPS: --</div>
+        <div style="display:flex; gap:6px; pointer-events:auto; overflow-x:auto; scrollbar-width:none;" id="lens-buttons-row">
+          <!-- Dynamically injected: [✓ 1x Main (Back)] [🤳 Front Selfie] -->
+        </div>
+        <div class="viewport-pill pill-alarm" id="guard-state-pill" style="white-space:nowrap;">STANDBY</div>
+      </div>
+
+      <!-- Info Pill & Landscape Hint -->
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#94a3b8; pointer-events:auto;">
+        <span id="cam-info-pill" style="background:rgba(0,0,0,0.7); backdrop-filter:blur(6px); padding:3px 8px; border-radius:10px; border:1px solid rgba(255,255,255,0.1); white-space:nowrap;">📷 Detecting sensor...</span>
+        <button id="btn-toggle-fit" class="viewport-pill" style="cursor:pointer; color:#00e676; border-color:#00e676; background:rgba(0,0,0,0.7); font-size:10px; padding:2px 7px; white-space:nowrap;">📐 Full Sensor</button>
+      </div>
+    </div>
+
+    <!-- Floating Bottom HUD on Video -->
+    <div class="viewport-bottom-hud">
+      <!-- Big Arm / Disarm Button directly on video -->
+      <button id="btn-toggle-guard" class="btn-main-guard inactive" disabled>
+        <span>🛡️</span>
+        <span id="btn-guard-text">START PIGEON GUARD</span>
+      </button>
+
+      <!-- Live AI Vision Ticker -->
+      <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); padding: 8px 12px; border-radius: 8px; font-size: 12px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+        <span style="color: var(--text-muted);">AI Eye:</span>
+        <span id="ai-detected-objects-ticker" style="color: #38bdf8; font-weight: 600; font-family: monospace;">Scanning...</span>
+      </div>
+
+      <div class="scroll-hint" onclick="window.scrollBy({ top: window.innerHeight * 0.85, behavior: 'smooth' });">
+        <span>Scroll down for Zone tuning & settings</span> <span>⬇️</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls Section (Below Fullscreen Video) -->
+  <div class="controls-wrapper" id="controls-section">
+
+    <!-- Camera Sensor & Field of View Card (Solves Zoomed In View) -->
+    <div class="card" style="border-color: rgba(56, 189, 248, 0.4);">
+      <div class="card-title">
+        <span style="color: #38bdf8;">📷 Camera Lens & Field of View (FOV)</span>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Switch Camera Sensor (Ultra-Wide vs Main)</div>
+        <select id="select-camera-device">
+          <option value="">Detecting camera sensors...</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Hardware Zoom Level</div>
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-top:4px;">
+          <button class="btn-action" style="padding:10px 4px; font-size:13px; font-weight:700; color:#38bdf8;" onclick="applyZoom(0.5)">0.5x</button>
+          <button class="btn-action" style="padding:10px 4px; font-size:13px; font-weight:700;" onclick="applyZoom(0.6)">0.6x</button>
+          <button class="btn-action" style="padding:10px 4px; font-size:13px; font-weight:700;" onclick="applyZoom(1.0)">1.0x</button>
+          <button class="btn-action" style="padding:10px 4px; font-size:13px; font-weight:700;" onclick="applyZoom(2.0)">2.0x</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instant Actions -->
+    <div class="action-row">
+      <button class="btn-action" id="btn-test-sound">
+        <span>📢</span> Test Alarm Sound
+      </button>
+      <button class="btn-action" id="btn-simulate-pigeon">
+        <span>🕊️</span> Test Detection
+      </button>
+    </div>
+
+    <div class="action-row">
+      <button class="btn-action" id="btn-switch-cam">
+        <span>🔄</span> Flip Camera
+      </button>
+      <button class="btn-action" id="btn-toggle-torch">
+        <span>🔦</span> Flash Strobe: OFF
+      </button>
+    </div>
+
+    <!-- Lens & Wide-Angle Controls (Solves 2x Zoom Issue) -->
+    <div class="action-row">
+      <button class="btn-action" id="btn-cycle-lens">
+        <span>📐</span> Switch Lens (Ultra-Wide)
+      </button>
+      <button class="btn-action" id="btn-toggle-zoom">
+        <span>🔍</span> Max Wide Angle
+      </button>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="stat-val" id="stat-scared-count">0</div>
+        <div class="stat-label">PIGEONS SCARED</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="stat-last-time">--:--</div>
+        <div class="stat-label">LAST TRIGGER</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="stat-cooldown-timer">0s</div>
+        <div class="stat-label">COOLDOWN</div>
+      </div>
+    </div>
+
+    <!-- Balcony Zone Tuning -->
+    <div class="card">
+      <div class="card-title">
+        <span>🎯 Balcony Railing Zone (ROI)</span>
+        <span style="color: var(--accent-green); font-size: 11px;">Active</span>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span>Ledge Height (Top Boundary)</span>
+          <span id="val-zone-top">10%</span>
+        </div>
+        <input type="range" id="slider-zone-top" min="0" max="80" value="10">
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span>Floor Depth (Bottom Boundary)</span>
+          <span id="val-zone-bottom">98%</span>
+        </div>
+        <input type="range" id="slider-zone-bottom" min="20" max="100" value="98">
+      </div>
+    </div>
+
+    <!-- Sound & Deterrent Preferences -->
+    <div class="card">
+      <div class="card-title">
+        <span>🔊 Deterrent Sound & Scare Settings</span>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Target Trigger Mode</div>
+        <select id="select-target-mode">
+          <option value="birds" selected>🕊️ Birds & Pigeons Only</option>
+          <option value="test">🧪 Test Mode: Detect Anything (Hands, Screen, Objects)</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Deterrent Audio Preset</div>
+        <select id="select-sound-preset">
+          <option value="random" selected>🔀 Anti-Habituation (Random Mix)</option>
+          <option value="falcon">🦅 Peregrine Falcon / Hawk Cry</option>
+          <option value="alarm">🚨 High-Intensity Alarm Burst</option>
+          <option value="ultrasonic">📡 Ultrasonic High-Frequency Sweep</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span>Speaker Volume</span>
+          <span id="val-volume">100%</span>
+        </div>
+        <input type="range" id="slider-volume" min="10" max="100" value="100">
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span>Detection Sensitivity</span>
+          <span id="val-sensitivity">High (28%)</span>
+        </div>
+        <input type="range" id="slider-sensitivity" min="15" max="80" value="28">
+      </div>
+    </div>
+
+    <!-- Recent Intruder Snapshots -->
+    <div class="card">
+      <div class="card-title">
+        <span>📸 Recent Scared Intruders</span>
+        <button id="btn-clear-captures" style="background:none;border:none;color:var(--text-muted);font-size:11px;cursor:pointer;">Clear</button>
+      </div>
+      <div class="gallery-container" id="snapshots-gallery">
+        <div style="font-size:12px;color:var(--text-muted);padding:10px;">No pigeons detected yet. Armed and waiting!</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Application State ---
+    const state = {
+      isGuarding: false,
+      modelReady: false,
+      model: null,
+      cameraStream: null,
+      currentCameraFacing: 'environment', // Start with back camera
+      selectedDeviceId: null,
+      availableCameras: [],
+      currentCameraIndex: 0,
+      zoomMin: 1.0,
+      zoomMax: 1.0,
+      currentZoom: 1.0,
+      wakeLock: null,
+      torchEnabled: false,
+      torchActive: false,
+      isBlastingAlarm: false,
+      cooldownRemaining: 0,
+      scaredCount: 0,
+      consecutiveBirdFrames: 0,
+      requiredBirdFrames: 2,
+      lastTriggerTime: 0,
+      fps: 0,
+      lastFrameTime: performance.now(),
+      zone: { top: 0.10, bottom: 0.98, left: 0.02, right: 0.98 },
+      settings: {
+        soundPreset: 'random',
+        targetMode: 'birds',
+        volume: 1.0,
+        confidence: 0.25,
+        cooldownSeconds: 6
+      },
+      snapshots: []
+    };
+
+    // DOM Elements
+    const video = document.getElementById('camera-video');
+    const canvas = document.getElementById('overlay-canvas');
+    const ctx = canvas.getContext('2d');
+    const aiBadge = document.getElementById('ai-status-badge');
+    const batteryBadge = document.getElementById('battery-badge');
+    const fpsCounter = document.getElementById('fps-counter');
+    const guardPill = document.getElementById('guard-state-pill');
+    const btnToggleGuard = document.getElementById('btn-toggle-guard');
+    const btnGuardText = document.getElementById('btn-guard-text');
+    const btnTestSound = document.getElementById('btn-test-sound');
+    const btnSimulatePigeon = document.getElementById('btn-simulate-pigeon');
+    const btnSwitchCam = document.getElementById('btn-switch-cam');
+    const btnToggleTorch = document.getElementById('btn-toggle-torch');
+    const statScared = document.getElementById('stat-scared-count');
+    const statLastTime = document.getElementById('stat-last-time');
+    const statCooldown = document.getElementById('stat-cooldown-timer');
+    const sliderZoneTop = document.getElementById('slider-zone-top');
+    const sliderZoneBottom = document.getElementById('slider-zone-bottom');
+    const valZoneTop = document.getElementById('val-zone-top');
+    const valZoneBottom = document.getElementById('val-zone-bottom');
+    const selectSound = document.getElementById('select-sound-preset');
+    const sliderVol = document.getElementById('slider-volume');
+    const valVol = document.getElementById('val-volume');
+    const sliderSens = document.getElementById('slider-sensitivity');
+    const valSens = document.getElementById('val-sensitivity');
+    const snapshotsGallery = document.getElementById('snapshots-gallery');
+    const btnClearCaptures = document.getElementById('btn-clear-captures');
+
+    // Register Service Worker for 100% Offline Capability
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(() => console.log('[PigeonGuard] ServiceWorker registered for offline use'))
+        .catch(err => console.log('[PigeonGuard] ServiceWorker err:', err));
+    }
+
+    // Pixel / Modern Android Native Install Prompt Handler
+    let deferredInstallPrompt = null;
+    const pixelInstallBanner = document.getElementById('pixel-install-banner');
+    const btnNativeInstall = document.getElementById('btn-native-install');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (pixelInstallBanner) {
+        pixelInstallBanner.style.display = 'flex';
+      }
+    });
+
+    if (btnNativeInstall) {
+      btnNativeInstall.addEventListener('click', async () => {
+        if (deferredInstallPrompt) {
+          deferredInstallPrompt.prompt();
+          const { outcome } = await deferredInstallPrompt.userChoice;
+          console.log('[PigeonGuard] Install outcome:', outcome);
+          deferredInstallPrompt = null;
+          pixelInstallBanner.style.display = 'none';
+        }
+      });
+    }
+
+    // Battery Status
+    if ('getBattery' in navigator) {
+      navigator.getBattery().then(batt => {
+        const updateBatt = () => {
+          const pct = Math.round(batt.level * 100);
+          batteryBadge.innerText = `${batt.charging ? '⚡' : '🔋'} ${pct}%`;
+        };
+        updateBatt();
+        batt.addEventListener('levelchange', updateBatt);
+        batt.addEventListener('chargingchange', updateBatt);
+      });
+    }
+
+    // --- Audio Synthesis & Sound Engine (Zero external dependencies) ---
+    const AudioEngine = {
+      ctx: null,
+      audioElements: {},
+
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+        // Pre-create Audio elements for fallback
+        ['falcon', 'alarm', 'ultrasonic'].forEach(name => {
+          const audio = new Audio(`static/sounds/${name === 'falcon' ? 'falcon_screech' : name === 'alarm' ? 'alarm_burst' : 'ultrasonic_sweep'}.wav`);
+          audio.preload = 'auto';
+          this.audioElements[name] = audio;
+        });
+      },
+
+      play(preset) {
+        this.init();
+        if (preset === 'random') {
+          const choices = ['falcon', 'alarm', 'ultrasonic'];
+          preset = choices[Math.floor(Math.random() * choices.length)];
+        }
+
+        // Try playing native WAV first
+        const audio = this.audioElements[preset];
+        if (audio) {
+          audio.volume = state.settings.volume;
+          audio.currentTime = 0;
+          audio.play().catch(() => {
+            // If file playback blocked, use synthesized audio fallback
+            this.synthesizeSound(preset);
+          });
+        } else {
+          this.synthesizeSound(preset);
+        }
+      },
+
+      synthesizeSound(type) {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const vol = state.settings.volume;
+
+        if (type === 'falcon') {
+          // Synthesized raptor / hawk cry with frequency slide & grit
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const mod = this.ctx.createOscillator();
+          const modGain = this.ctx.createGain();
+
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(4200, now);
+          osc.frequency.exponentialRampToValueAtTime(1600, now + 1.8);
+
+          // Modulation for raspiness
+          mod.frequency.setValueAtTime(45, now);
+          modGain.gain.setValueAtTime(400, now);
+          mod.connect(osc.frequency);
+
+          gain.gain.setValueAtTime(0, now);
+          gain.gain.linearRampToValueAtTime(vol * 0.8, now + 0.1);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 2.0);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          osc.start(now);
+          mod.start(now);
+          osc.stop(now + 2.2);
+          mod.stop(now + 2.2);
+        } else if (type === 'ultrasonic') {
+          // High-frequency acoustic sweep 10kHz to 16kHz
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(10000, now);
+          osc.frequency.linearRampToValueAtTime(16000, now + 0.8);
+          osc.frequency.linearRampToValueAtTime(10000, now + 1.6);
+
+          gain.gain.setValueAtTime(vol * 0.9, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 2.0);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 2.0);
+        } else {
+          // Sharp dual-tone alarm burst
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(2800, now);
+          for (let i = 0; i < 8; i++) {
+            osc.frequency.setValueAtTime(i % 2 === 0 ? 3600 : 2400, now + i * 0.2);
+          }
+          gain.gain.setValueAtTime(vol * 0.85, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 1.8);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 1.8);
+        }
+      }
+    };
+
+    // --- Screen Wake Lock (Prevents phone from sleeping) ---
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          state.wakeLock = await navigator.wakeLock.request('screen');
+          console.log('[PigeonGuard] Screen WakeLock acquired (Phone will stay awake)');
+          state.wakeLock.addEventListener('release', () => {
+            console.log('[PigeonGuard] WakeLock released');
+          });
+        } catch (err) {
+          console.log('[PigeonGuard] WakeLock error:', err);
+        }
+      }
+    }
+
+    function releaseWakeLock() {
+      if (state.wakeLock) {
+        state.wakeLock.release();
+        state.wakeLock = null;
+      }
+    }
+
+    document.addEventListener('visibilitychange', async () => {
+      if (state.wakeLock !== null && document.visibilityState === 'visible' && state.isGuarding) {
+        await requestWakeLock();
+      }
+    });
+
+    // --- Camera Torch / Strobe Light ---
+    async function setTorch(enable) {
+      if (!state.cameraStream) return;
+      const track = state.cameraStream.getVideoTracks()[0];
+      if (!track) return;
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.torch) {
+        try {
+          await track.applyConstraints({ advanced: [{ torch: enable }] });
+        } catch (e) {
+          console.log('Torch constraint error:', e);
+        }
+      }
+    }
+
+    async function strobeFlash(times = 5) {
+      if (!state.torchEnabled) return;
+      for (let i = 0; i < times; i++) {
+        await setTorch(true);
+        await new Promise(r => setTimeout(r, 90));
+        await setTorch(false);
+        await new Promise(r => setTimeout(r, 90));
+      }
+    }
+
+    // --- Resilient Multi-Level Camera Initialization (Optimized for Google Pixel & Modern Android) ---
+    const cameraPrompt = document.getElementById('camera-permission-prompt');
+    const btnRequestCam = document.getElementById('btn-request-cam');
+
+    if (btnRequestCam) {
+      btnRequestCam.addEventListener('click', async () => {
+        cameraPrompt.style.display = 'none';
+        await startCamera(true);
+      });
+    }
+
+    async function startCamera(isUserGesture = false) {
+      if (state.cameraStream) {
+        state.cameraStream.getTracks().forEach(t => {
+          try { t.stop(); } catch(e) {}
+        });
+        state.cameraStream = null;
+      }
+
+      // If specific camera sensor was chosen by user, prioritize it with native 4:3 sensor constraints
+      let attempts = [];
+      if (state.selectedDeviceId) {
+        attempts.push(
+          { audio: false, video: { deviceId: { exact: state.selectedDeviceId }, aspectRatio: { ideal: 1.333333 }, width: { ideal: 1920 }, height: { ideal: 1440 } } },
+          { audio: false, video: { deviceId: { exact: state.selectedDeviceId }, width: { ideal: 1920 } } },
+          { audio: false, video: { deviceId: { exact: state.selectedDeviceId } } }
+        );
+      }
+
+      // Progressive fallback constraints requesting native 4:3 camera sensor to prevent 16:9 cropping
+      attempts.push(
+        { audio: false, video: { facingMode: { ideal: state.currentCameraFacing }, aspectRatio: { ideal: 1.333333 }, width: { ideal: 1920 }, height: { ideal: 1440 } } },
+        { audio: false, video: { facingMode: state.currentCameraFacing, aspectRatio: { ideal: 1.333333 } } },
+        { audio: false, video: { facingMode: state.currentCameraFacing } },
+        { audio: false, video: { facingMode: 'environment' } },
+        { audio: false, video: true } // Universal fallback
+      );
+
+      let stream = null;
+      for (const c of attempts) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(c);
+          if (stream) break;
+        } catch (e) {
+          console.warn('Camera attempt failed for constraint:', c, e);
+        }
+      }
+
+      if (stream) {
+        state.cameraStream = stream;
+        video.srcObject = stream;
+        video.muted = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        if (cameraPrompt) cameraPrompt.style.display = 'none';
+
+        try {
+          await video.play();
+        } catch (playErr) {
+          console.warn('video.play() failed:', playErr);
+        }
+
+        // Apply lowest hardware zoom if supported
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const caps = track.getCapabilities ? track.getCapabilities() : {};
+          if (caps.zoom) {
+            state.zoomMin = caps.zoom.min || 1.0;
+            state.zoomMax = caps.zoom.max || 1.0;
+            state.currentZoom = state.zoomMin;
+            try {
+              await track.applyConstraints({ advanced: [{ zoom: state.zoomMin }] });
+              console.log('[Camera] Forced wide angle zoom to:', state.zoomMin);
+            } catch (zErr) {
+              console.warn('Could not apply min zoom:', zErr);
+            }
+          }
+        }
+
+        // Enumerate all camera sensors (Main, Ultra-Wide, Telephoto, Front)
+        await enumerateCameras();
+
+        resizeCanvas();
+        checkTorchSupport();
+        updateCameraInfoPill();
+      } else {
+        console.warn('Could not auto-start camera; showing user tap prompt');
+        if (cameraPrompt) cameraPrompt.style.display = 'flex';
+      }
+    }
+
+    async function switchCameraSensor(deviceId) {
+      const infoPill = document.getElementById('cam-info-pill');
+      if (infoPill) infoPill.innerText = 'Switching camera sensor...';
+
+      if (state.cameraStream) {
+        state.cameraStream.getTracks().forEach(t => {
+          try { t.stop(); } catch(e) {}
+        });
+        state.cameraStream = null;
+        video.srcObject = null;
+      }
+
+      // Brief delay for hardware camera HAL release
+      await new Promise(r => setTimeout(r, 120));
+
+      const attempts = [
+        { audio: false, video: { deviceId: { exact: deviceId }, aspectRatio: { ideal: 1.333333 }, width: { ideal: 1920 }, height: { ideal: 1440 } } },
+        { audio: false, video: { deviceId: { exact: deviceId }, width: { ideal: 1920 } } },
+        { audio: false, video: { deviceId: { exact: deviceId } } }
+      ];
+
+      let stream = null;
+      for (const c of attempts) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(c);
+          if (stream) break;
+        } catch (e) {
+          console.warn('Sensor switch failed for constraint:', c, e);
+        }
+      }
+
+      if (stream) {
+        state.cameraStream = stream;
+        state.selectedDeviceId = deviceId;
+        video.srcObject = stream;
+        video.muted = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        try { await video.play(); } catch(e) {}
+
+        resizeCanvas();
+        checkTorchSupport();
+        await enumerateCameras();
+        updateCameraInfoPill();
+      } else {
+        alert('Could not switch to that camera sensor. Restoring default...');
+        await startCamera(true);
+      }
+    }
+
+    function updateCameraInfoPill() {
+      const pill = document.getElementById('cam-info-pill');
+      if (!pill) return;
+      const track = state.cameraStream ? state.cameraStream.getVideoTracks()[0] : null;
+      const lbl = track ? track.label : 'Active';
+      const isFront = lbl.toLowerCase().includes('front') || lbl.toLowerCase().includes('user');
+      const w = video.videoWidth || 0;
+      const h = video.videoHeight || 0;
+      const ratio = (w > 0 && h > 0) ? (w / h).toFixed(2) : '--';
+      pill.innerText = `${isFront ? '🤳 Front (Selfie)' : '📷 Back'}: ${lbl.slice(0, 18)} (${w}x${h}, ${ratio}:1)`;
+    }
+
+    window.applyZoom = async function(val) {
+      if (state.cameraStream) {
+        const track = state.cameraStream.getVideoTracks()[0];
+        const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+        if (caps.zoom) {
+          const target = Math.max(caps.zoom.min || 0.5, Math.min(caps.zoom.max || 10, val));
+          state.currentZoom = target;
+          try {
+            await track.applyConstraints({ advanced: [{ zoom: target }] });
+            console.log('[Camera] Applied zoom:', target);
+            const btnUW = document.getElementById('btn-quick-ultrawide');
+            if (btnUW) btnUW.innerText = `${target}x Zoom`;
+          } catch(e) {
+            console.warn('Zoom error:', e);
+          }
+        } else {
+          console.warn('Hardware zoom not supported on this sensor');
+        }
+      }
+    };
+
+    async function enumerateCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        state.availableCameras = videoDevices;
+        console.log('[Camera] Found cameras:', videoDevices.length, videoDevices);
+
+        const selectCam = document.getElementById('select-camera-device');
+        if (selectCam) {
+          selectCam.innerHTML = '';
+        }
+
+        const lensRow = document.getElementById('lens-buttons-row');
+        if (lensRow) {
+          lensRow.innerHTML = '';
+        }
+
+        const currentTrack = state.cameraStream ? state.cameraStream.getVideoTracks()[0] : null;
+        const currentDevId = state.selectedDeviceId || (currentTrack ? currentTrack.getSettings().deviceId : null);
+
+        // Strictly separate BACK vs FRONT cameras based on labels and settings
+        const backCams = [];
+        const frontCams = [];
+
+        videoDevices.forEach((cam) => {
+          const lblLower = (cam.label || '').toLowerCase();
+          const isFront = lblLower.includes('front') || lblLower.includes('user') || lblLower.includes('selfie') || lblLower.includes('face');
+          if (isFront) {
+            frontCams.push(cam);
+          } else {
+            backCams.push(cam);
+          }
+        });
+
+        // Store back cameras in state so next lens button cycles back cameras
+        state.backCameras = backCams;
+
+        // Process all cameras with correct roles
+        const processedCameras = [];
+
+        backCams.forEach((cam, idx) => {
+          const lbl = cam.label || '';
+          const lblLower = lbl.toLowerCase();
+          let role = '';
+          if (lblLower.includes('ultra') || lblLower.includes('0.5') || lblLower.includes('wide')) {
+            role = '0.5x Ultra-Wide (Back)';
+          } else if (idx === 0) {
+            role = '1x Main (Back)';
+          } else if (idx === 1) {
+            role = '0.5x Ultra-Wide (Back)';
+          } else {
+            role = `Back Cam ${idx + 1}`;
+          }
+          processedCameras.push({ cam, role, isFront: false, shortLabel: lbl || `Back ${idx + 1}` });
+        });
+
+        frontCams.forEach((cam, idx) => {
+          const lbl = cam.label || '';
+          processedCameras.push({ cam, role: `Front Selfie ${idx > 0 ? idx + 1 : ''}`, isFront: true, shortLabel: lbl || 'Front' });
+        });
+
+        // Populate UI
+        processedCameras.forEach(({ cam, role, isFront, shortLabel }) => {
+          if (selectCam) {
+            const opt = document.createElement('option');
+            opt.value = cam.deviceId;
+            opt.text = `${role} [${shortLabel}]`;
+            if (currentDevId === cam.deviceId) opt.selected = true;
+            selectCam.appendChild(opt);
+          }
+
+          if (lensRow) {
+            const btn = document.createElement('button');
+            btn.className = 'viewport-pill';
+            btn.style.cursor = 'pointer';
+            btn.style.whiteSpace = 'nowrap';
+            btn.style.fontSize = '11px';
+            btn.style.padding = '4px 9px';
+            btn.style.transition = 'all 0.2s ease';
+
+            const isActive = (currentDevId === cam.deviceId);
+            if (isActive) {
+              btn.style.background = isFront ? '#ffab00' : '#00e676';
+              btn.style.color = '#0b0f19';
+              btn.style.borderColor = isFront ? '#ffab00' : '#00e676';
+              btn.style.fontWeight = '800';
+              btn.innerHTML = `✓ ${role}`;
+            } else {
+              btn.style.background = 'rgba(0,0,0,0.75)';
+              btn.style.color = '#fff';
+              btn.style.borderColor = 'rgba(255,255,255,0.2)';
+              btn.innerHTML = `${isFront ? '🤳' : '📷'} ${role}`;
+            }
+
+            btn.addEventListener('click', async () => {
+              console.log('[Lens] Selected sensor:', cam.deviceId, role);
+              state.selectedDeviceId = cam.deviceId;
+              await switchCameraSensor(cam.deviceId);
+            });
+
+            lensRow.appendChild(btn);
+          }
+        });
+
+        updateCameraInfoPill();
+      } catch (e) {
+        console.warn('enumerateCameras error:', e);
+      }
+    }
+
+    function checkTorchSupport() {
+      if (!state.cameraStream) return;
+      const track = state.cameraStream.getVideoTracks()[0];
+      const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.torch) {
+        btnToggleTorch.style.display = 'flex';
+      } else {
+        btnToggleTorch.style.opacity = '0.5';
+      }
+    }
+
+    function resizeCanvas() {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        updateCameraInfoPill();
+      }
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // --- AI Model Loading (COCO-SSD / MobileNet) ---
+    async function loadAIModel() {
+      try {
+        aiBadge.innerText = 'Loading AI...';
+        // cocoSsd is loaded globally via coco-ssd.min.js
+        state.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        state.modelReady = true;
+        aiBadge.innerText = 'AI Ready';
+        aiBadge.className = 'badge green';
+        btnToggleGuard.disabled = false;
+        console.log('[PigeonGuard] TensorFlow AI Model Loaded Successfully');
+      } catch (err) {
+        console.warn('Lite model failed, trying default:', err);
+        try {
+          state.model = await cocoSsd.load();
+          state.modelReady = true;
+          aiBadge.innerText = 'AI Ready';
+          aiBadge.className = 'badge green';
+          btnToggleGuard.disabled = false;
+        } catch (e2) {
+          console.error('Failed to load AI model:', e2);
+          aiBadge.innerText = 'AI Load Error';
+          aiBadge.className = 'badge red';
+        }
+      }
+    }
+
+    // --- Trigger Scare Sequence ---
+    async function triggerScare(birdBox = null) {
+      if (state.cooldownRemaining > 0 || state.isBlastingAlarm) return;
+
+      state.isBlastingAlarm = true;
+      state.scaredCount++;
+      state.lastTriggerTime = Date.now();
+      statScared.innerText = state.scaredCount;
+
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      statLastTime.innerText = timeStr;
+
+      guardPill.innerText = '🚨 BLASTING ALARM!';
+      guardPill.classList.add('blasting');
+
+      // 1. Play predator hawk / alarm audio
+      AudioEngine.play(state.settings.soundPreset);
+
+      // 2. Pulse camera flash strobe
+      strobeFlash(6);
+
+      // 3. Capture intruder photo
+      saveIntruderSnapshot(timeStr, birdBox);
+
+      // Sound duration ~ 2.5s, then enter cooldown
+      setTimeout(() => {
+        state.isBlastingAlarm = false;
+        state.cooldownRemaining = state.settings.cooldownSeconds;
+        guardPill.classList.remove('blasting');
+        guardPill.innerText = `⏱ Cooldown (${state.cooldownRemaining}s)`;
+
+        const cdInterval = setInterval(() => {
+          state.cooldownRemaining--;
+          statCooldown.innerText = `${state.cooldownRemaining}s`;
+          if (state.cooldownRemaining <= 0) {
+            clearInterval(cdInterval);
+            guardPill.innerText = state.isGuarding ? 'ARMED' : 'STANDBY';
+            statCooldown.innerText = '0s';
+          } else {
+            guardPill.innerText = `⏱ Cooldown (${state.cooldownRemaining}s)`;
+          }
+        }, 1000);
+      }, 2500);
+    }
+
+    // Save snapshot of detected pigeon
+    function saveIntruderSnapshot(timeStr, box) {
+      const snapCanvas = document.createElement('canvas');
+      snapCanvas.width = canvas.width;
+      snapCanvas.height = canvas.height;
+      const sCtx = snapCanvas.getContext('2d');
+
+      // Draw current video frame
+      sCtx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+
+      // Draw red intruder box
+      if (box) {
+        sCtx.strokeStyle = '#ff1744';
+        sCtx.lineWidth = 4;
+        sCtx.strokeRect(box[0], box[1], box[2], box[3]);
+        sCtx.fillStyle = '#ff1744';
+        sCtx.fillRect(box[0], box[1] - 25, 160, 25);
+        sCtx.fillStyle = '#fff';
+        sCtx.font = 'bold 14px sans-serif';
+        sCtx.fillText('PIGEON DETECTED', box[0] + 5, box[1] - 7);
+      }
+
+      // Banner stamp
+      sCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      sCtx.fillRect(0, snapCanvas.height - 30, snapCanvas.width, 30);
+      sCtx.fillStyle = '#00e676';
+      sCtx.font = 'bold 13px sans-serif';
+      sCtx.fillText(`🦅 SCARED AWAY AT ${timeStr}`, 10, snapCanvas.height - 10);
+
+      const dataUrl = snapCanvas.toDataURL('image/jpeg', 0.8);
+      renderSnapshot(dataUrl, timeStr);
+    }
+
+    function renderSnapshot(dataUrl, timeStr) {
+      if (state.snapshots.length === 0) {
+        snapshotsGallery.innerHTML = '';
+      }
+      state.snapshots.unshift({ url: dataUrl, time: timeStr });
+      if (state.snapshots.length > 8) state.snapshots.pop();
+
+      const card = document.createElement('div');
+      card.className = 'snapshot-card';
+      card.innerHTML = `
+        <img src="${dataUrl}" alt="Pigeon">
+        <div class="snapshot-time">${timeStr}</div>
+      `;
+      snapshotsGallery.prepend(card);
+    }
+
+    // --- Real-Time Vision & Detection Loop (Runs continuously) ---
+    let isDetecting = false;
+
+    async function detectionLoop() {
+      const now = performance.now();
+      const delta = now - state.lastFrameTime;
+      state.lastFrameTime = now;
+      state.fps = Math.round(1000 / (delta || 1));
+      fpsCounter.innerText = `FPS: ${state.fps} | ${state.isGuarding ? 'ARMED' : 'PREVIEW'}`;
+
+      if (state.model && video.readyState >= 2 && !isDetecting) {
+        isDetecting = true;
+        try {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // 1. Draw Balcony Detection Zone
+          const cw = canvas.width || 640;
+          const ch = canvas.height || 480;
+          const zx = state.zone.left * cw;
+          const zy = state.zone.top * ch;
+          const zw = (state.zone.right - state.zone.left) * cw;
+          const zh = (state.zone.bottom - state.zone.top) * ch;
+
+          const isBlasting = state.isBlastingAlarm;
+          ctx.strokeStyle = isBlasting ? '#ff1744' : state.isGuarding ? '#00e676' : 'rgba(0, 230, 118, 0.45)';
+          ctx.lineWidth = 2.5;
+          ctx.strokeRect(zx, zy, zw, zh);
+
+          ctx.fillStyle = isBlasting ? 'rgba(255, 23, 68, 0.25)' : state.isGuarding ? 'rgba(0, 230, 118, 0.08)' : 'rgba(0, 230, 118, 0.03)';
+          ctx.fillRect(zx, zy, zw, zh);
+
+          ctx.fillStyle = isBlasting ? '#ff1744' : '#00e676';
+          ctx.font = 'bold 12px sans-serif';
+          ctx.fillText(state.isGuarding ? 'BALCONY DETECTION ZONE (ARMED)' : 'BALCONY ZONE (TAP START TO ARM)', zx + 8, zy + 18);
+
+          // 2. Run Object Detection
+          const predictions = await state.model.detect(video);
+          let pigeonFoundInZone = false;
+          let anyBirdFound = false;
+          let detectedBox = null;
+
+          // Update on-screen real-time AI eye ticker
+          const tickerEl = document.getElementById('ai-detected-objects-ticker');
+          if (tickerEl) {
+            if (predictions.length > 0) {
+              const summary = predictions.map(p => `${p.class} (${Math.round(p.score * 100)}%)`).join(', ');
+              tickerEl.innerText = summary;
+              tickerEl.style.color = '#38bdf8';
+            } else {
+              tickerEl.innerText = 'Scanning... (Point directly at pigeon)';
+              tickerEl.style.color = 'var(--text-muted)';
+            }
+          }
+
+          for (const pred of predictions) {
+            // Check if matches target mode
+            const isTarget = (state.settings.targetMode === 'test') ||
+                             (pred.class === 'bird' || pred.class === 'kite' || pred.class === 'animal');
+
+            if (isTarget && pred.score >= state.settings.confidence) {
+              anyBirdFound = true;
+              const [bx, by, bw, bh] = pred.bbox;
+              const cx = bx + bw / 2;
+              const cy = by + bh / 2;
+
+              // Check if center of bird is inside the Balcony Zone
+              const inZone = (cx >= zx && cx <= zx + zw && cy >= zy && cy <= zy + zh);
+
+              // Bounding Box Color
+              ctx.strokeStyle = inZone ? '#ff1744' : '#ffab00';
+              ctx.lineWidth = inZone ? 4 : 2;
+              ctx.strokeRect(bx, by, bw, bh);
+
+              // Label
+              const confPct = Math.round(pred.score * 100);
+              const label = inZone ? `${pred.class.toUpperCase()} ${confPct}% (IN ZONE)` : `${pred.class.toUpperCase()} ${confPct}% (Out of Zone)`;
+              ctx.fillStyle = inZone ? '#ff1744' : '#ffab00';
+              ctx.fillRect(bx, by - 24, Math.max(130, label.length * 8), 24);
+              ctx.fillStyle = '#fff';
+              ctx.font = 'bold 12px sans-serif';
+              ctx.fillText(label, bx + 5, by - 7);
+
+              if (inZone) {
+                pigeonFoundInZone = true;
+                detectedBox = pred.bbox;
+              }
+            }
+          }
+
+          // Top Banner when bird detected
+          if (anyBirdFound) {
+            if (pigeonFoundInZone) {
+              guardPill.innerText = state.isGuarding ? '🚨 INTRUDER IN ZONE!' : '⚠️ INTRUDER (CLICK START TO ARM)';
+              guardPill.style.background = '#ff1744';
+            } else {
+              guardPill.innerText = '👀 Detected Outside Zone';
+              guardPill.style.background = '#ffab00';
+            }
+          } else if (!state.isBlastingAlarm && state.cooldownRemaining <= 0) {
+            guardPill.innerText = state.isGuarding ? '🛡️ ARMED & WATCHING' : 'STANDBY (PREVIEW)';
+            guardPill.style.background = state.isGuarding ? 'rgba(0, 230, 118, 0.3)' : 'rgba(0, 0, 0, 0.65)';
+          }
+
+          // 3. Trigger alarm if in Guard Mode
+          if (pigeonFoundInZone && state.isGuarding) {
+            state.consecutiveBirdFrames++;
+            if (state.consecutiveBirdFrames >= state.requiredBirdFrames) {
+              triggerScare(detectedBox);
+            }
+          } else {
+            state.consecutiveBirdFrames = Math.max(0, state.consecutiveBirdFrames - 1);
+          }
+        } catch (e) {
+          console.warn('Detection error:', e);
+        } finally {
+          isDetecting = false;
+        }
+      }
+
+      // Keep detection loop running smoothly
+      requestAnimationFrame(detectionLoop);
+    }
+
+    // --- UI Controls & Event Listeners ---
+    btnToggleGuard.addEventListener('click', async () => {
+      AudioEngine.init(); // Unlock browser audio
+      state.isGuarding = !state.isGuarding;
+
+      if (state.isGuarding) {
+        btnToggleGuard.className = 'btn-main-guard active';
+        btnGuardText.innerText = 'DISARM GUARD';
+        guardPill.innerText = '🛡️ ARMED & WATCHING';
+        guardPill.className = 'viewport-pill pill-alarm';
+        await requestWakeLock();
+      } else {
+        btnToggleGuard.className = 'btn-main-guard inactive';
+        btnGuardText.innerText = 'START PIGEON GUARD';
+        guardPill.innerText = 'STANDBY (PREVIEW)';
+        releaseWakeLock();
+      }
+    });
+
+    // Test Sound Button
+    btnTestSound.addEventListener('click', () => {
+      AudioEngine.play(state.settings.soundPreset);
+      guardPill.innerText = '📢 PLAYING TEST SOUND';
+      setTimeout(() => {
+        guardPill.innerText = state.isGuarding ? 'ARMED' : 'STANDBY';
+      }, 2000);
+    });
+
+    // Simulate Pigeon Detection (Instant test without waiting for a real bird)
+    btnSimulatePigeon.addEventListener('click', () => {
+      AudioEngine.init();
+      const cw = canvas.width || 640;
+      const ch = canvas.height || 480;
+      const simBox = [cw * 0.35, ch * 0.45, 120, 100];
+      triggerScare(simBox);
+    });
+
+    // Flip Camera (Back / Front)
+    btnSwitchCam.addEventListener('click', async () => {
+      state.currentCameraFacing = state.currentCameraFacing === 'environment' ? 'user' : 'environment';
+      state.selectedDeviceId = null; // Reset to let facingMode decide
+      await startCamera();
+    });
+
+    // Lens Switcher (Cycles between Ultra-Wide 0.5x, Main Wide, and other sensors)
+    const btnCycleLens = document.getElementById('btn-cycle-lens');
+    if (btnCycleLens) {
+      btnCycleLens.addEventListener('click', async () => {
+        if (!state.availableCameras || state.availableCameras.length === 0) {
+          await enumerateCameras();
+        }
+        if (state.availableCameras.length > 0) {
+          state.currentCameraIndex = (state.currentCameraIndex + 1) % state.availableCameras.length;
+          const chosen = state.availableCameras[state.currentCameraIndex];
+          state.selectedDeviceId = chosen.deviceId;
+          const label = chosen.label || `Camera ${state.currentCameraIndex + 1}`;
+          btnCycleLens.innerText = `📐 ${label.slice(0, 16)}`;
+          await switchCameraSensor(chosen.deviceId);
+        } else {
+          alert('No alternate camera lenses detected by browser.');
+        }
+      });
+    }
+
+    // Toggle Minimum Zoom (Force Ultra-Wide)
+    const btnToggleZoom = document.getElementById('btn-toggle-zoom');
+    if (btnToggleZoom) {
+      btnToggleZoom.addEventListener('click', async () => {
+        if (state.cameraStream) {
+          const track = state.cameraStream.getVideoTracks()[0];
+          const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+          if (caps.zoom) {
+            state.currentZoom = (state.currentZoom === caps.zoom.min) ? 1.0 : caps.zoom.min;
+            try {
+              await track.applyConstraints({ advanced: [{ zoom: state.currentZoom }] });
+              btnToggleZoom.innerText = `🔍 Zoom: ${state.currentZoom}x`;
+            } catch (e) {
+              console.warn('Zoom constraint error:', e);
+            }
+          } else {
+            // Toggle fit as fallback
+            const isContain = (video.style.objectFit === 'contain');
+            video.style.objectFit = isContain ? 'cover' : 'contain';
+            canvas.style.objectFit = isContain ? 'cover' : 'contain';
+            btnToggleZoom.innerText = isContain ? '🔍 Cropped' : '🔍 Uncropped';
+          }
+        }
+      });
+    }
+
+    // Toggle Video Fit on Fullscreen overlay (Uncropped Full Sensor vs Fullscreen Fill)
+    const btnToggleFit = document.getElementById('btn-toggle-fit');
+    if (btnToggleFit) {
+      // Default to uncropped contain
+      video.style.objectFit = 'contain';
+      canvas.style.objectFit = 'contain';
+
+      btnToggleFit.addEventListener('click', () => {
+        const isContain = (video.style.objectFit === 'contain');
+        if (isContain) {
+          video.style.objectFit = 'cover';
+          canvas.style.objectFit = 'cover';
+          btnToggleFit.innerText = '⛶ Cropped Fill';
+          btnToggleFit.style.color = '#fff';
+          btnToggleFit.style.borderColor = 'rgba(255,255,255,0.2)';
+        } else {
+          video.style.objectFit = 'contain';
+          canvas.style.objectFit = 'contain';
+          btnToggleFit.innerText = '📐 Full Sensor';
+          btnToggleFit.style.color = '#00e676';
+          btnToggleFit.style.borderColor = '#00e676';
+        }
+      });
+    }
+
+    // Quick 0.5x Ultra-Wide Button on Top HUD
+    const btnQuickUW = document.getElementById('btn-quick-ultrawide');
+    if (btnQuickUW) {
+      btnQuickUW.addEventListener('click', async () => {
+        if (!state.availableCameras || state.availableCameras.length === 0) {
+          await enumerateCameras();
+        }
+
+        // Switch to the Ultra-Wide BACK camera
+        const backCams = state.backCameras || [];
+        if (backCams.length > 1) {
+          let target = backCams.find(c => {
+            const l = (c.label || '').toLowerCase();
+            return l.includes('wide') || l.includes('0.5') || l.includes('ultra');
+          });
+
+          // On Samsung phones with 2+ back cameras, index 1 is the ultra-wide lens
+          if (!target && backCams.length >= 2) {
+            target = backCams[1];
+          }
+
+          if (target) {
+            state.selectedDeviceId = target.deviceId;
+            await switchCameraSensor(target.deviceId);
+            return;
+          }
+        }
+
+        // Fallback: Digital zoom to minimum
+        await window.applyZoom(0.5);
+      });
+    }
+
+    // Quick Next Lens Button on Top HUD (Cycles through BACK cameras only)
+    const btnQuickLens = document.getElementById('btn-quick-nextlens');
+    if (btnQuickLens) {
+      btnQuickLens.addEventListener('click', async () => {
+        if (!state.availableCameras || state.availableCameras.length === 0) {
+          await enumerateCameras();
+        }
+        const backCams = (state.backCameras && state.backCameras.length > 0) ? state.backCameras : state.availableCameras;
+        if (backCams.length > 0) {
+          state.currentCameraIndex = (state.currentCameraIndex + 1) % backCams.length;
+          const chosen = backCams[state.currentCameraIndex];
+          state.selectedDeviceId = chosen.deviceId;
+          btnQuickLens.innerText = `📐 Cam ${state.currentCameraIndex + 1}`;
+          await switchCameraSensor(chosen.deviceId);
+        }
+      });
+    }
+
+    // Camera Sensor Dropdown Selection
+    const selectCameraDevice = document.getElementById('select-camera-device');
+    if (selectCameraDevice) {
+      selectCameraDevice.addEventListener('change', async (e) => {
+        state.selectedDeviceId = e.target.value;
+        await switchCameraSensor(e.target.value);
+      });
+    }
+
+    // Torch / Flashlight Strobe Toggle
+    btnToggleTorch.addEventListener('click', async () => {
+      state.torchEnabled = !state.torchEnabled;
+      btnToggleTorch.innerText = state.torchEnabled ? '🔦 Flash Strobe: ON' : '🔦 Flash Strobe: OFF';
+      btnToggleTorch.style.borderColor = state.torchEnabled ? 'var(--accent-green)' : 'var(--border-color)';
+      if (state.torchEnabled) {
+        strobeFlash(2);
+      }
+    });
+
+    // Zone Sliders
+    sliderZoneTop.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      state.zone.top = val / 100;
+      valZoneTop.innerText = `${val}%`;
+    });
+
+    sliderZoneBottom.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      state.zone.bottom = val / 100;
+      valZoneBottom.innerText = `${val}%`;
+    });
+
+    // Target Mode Selector
+    const selectTargetMode = document.getElementById('select-target-mode');
+    if (selectTargetMode) {
+      selectTargetMode.addEventListener('change', (e) => {
+        state.settings.targetMode = e.target.value;
+      });
+    }
+
+    // Auto-unlock audio on any screen touch
+    document.addEventListener('touchstart', () => AudioEngine.init(), { once: true });
+    document.addEventListener('click', () => AudioEngine.init(), { once: true });
+
+    // Sound Selector
+    selectSound.addEventListener('change', (e) => {
+      state.settings.soundPreset = e.target.value;
+    });
+
+    // Volume Slider
+    sliderVol.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      state.settings.volume = val / 100;
+      valVol.innerText = `${val}%`;
+    });
+
+    // Sensitivity Slider
+    sliderSens.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      state.settings.confidence = val / 100;
+      valSens.innerText = `${val < 40 ? 'High' : val > 60 ? 'Strict' : 'Medium'} (${val}%)`;
+    });
+
+    // Clear Captures
+    btnClearCaptures.addEventListener('click', () => {
+      state.snapshots = [];
+      snapshotsGallery.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:10px;">Cleared all snapshots.</div>';
+    });
+
+    // --- Bootstrap on Load ---
+    window.addEventListener('DOMContentLoaded', async () => {
+      await startCamera();
+      await loadAIModel();
+      detectionLoop(); // Start continuous preview & detection loop
+    });
+  </script>
+</body>
+</html>
