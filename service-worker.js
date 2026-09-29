@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pigeon-guard-v11';
+const CACHE_NAME = 'pigeon-guard-v12';
 const ASSETS_TO_CACHE = [
   './static/tf.min.js',
   './static/coco-ssd.min.js',
