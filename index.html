@@ -442,12 +442,11 @@
   <div class="viewport-container" id="viewport">
     <video id="camera-video" autoplay playsinline muted></video>
     <canvas id="overlay-canvas"></canvas>
-
     <!-- Tap to Activate Camera Prompt (Crucial for Pixel Chrome gesture requirement) -->
     <div id="camera-permission-prompt" style="display:none; position:absolute; inset:0; z-index:40; background:rgba(11,15,25,0.92); flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;">
       <div style="font-size:36px; margin-bottom:12px;">📷</div>
       <div style="font-size:16px; font-weight:700; margin-bottom:6px;">Camera Access Needed</div>
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:16px; max-width:260px;">Google Pixel requires a tap to activate camera permissions.</div>
+      <div id="camera-permission-status" role="status" style="font-size:12px; color:var(--text-muted); margin-bottom:16px; max-width:260px;">Allow camera access in Chrome to see your balcony.</div>
       <button id="btn-request-cam" class="btn-main-guard inactive" style="width:auto; padding:12px 20px; font-size:14px;">
         Tap to Enable Camera
       </button>
@@ -684,7 +683,7 @@
     <form method="dialog"><button class="btn-action" style="margin-top:16px">Close</button></form>
   </dialog>
   <script>
-    const APP_VERSION = 'v16';
+    const APP_VERSION = 'v17';
     // --- Application State ---
     const state = {
       isGuarding: false,
@@ -752,6 +751,7 @@
     const offlineStatus = document.getElementById('offline-status');
     document.getElementById('app-version').innerText = `App version: ${APP_VERSION}`;
     let updateAvailable = false;
+    let availableVersion = null;
     const updateButton = document.getElementById('btn-check-update');
     function showUpdateReady() {
       updateAvailable = true;
@@ -760,14 +760,26 @@
     }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', event => {
-        if (event.data?.type === 'APP_VERSION' && event.data.version !== `pigeon-guard-${APP_VERSION}`) showUpdateReady();
+        if (event.source !== navigator.serviceWorker.controller || event.data?.type !== 'APP_VERSION') return;
+        availableVersion = event.data.version;
+        if (availableVersion !== `pigeon-guard-${APP_VERSION}`) showUpdateReady();
+        else {
+          updateAvailable = false;
+          updateButton.innerText = 'Check for updates';
+          document.getElementById('update-status').innerText = `Running the saved ${APP_VERSION} app.`;
+        }
       });
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         navigator.serviceWorker.controller?.postMessage({ type: 'GET_VERSION' });
       });
     }
     updateButton.addEventListener('click', async () => {
-      if (updateAvailable) { location.reload(); return; }
+      if (updateAvailable) {
+        const restartUrl = new URL(location.href);
+        restartUrl.searchParams.set('app-update', availableVersion || Date.now());
+        location.replace(restartUrl.href);
+        return;
+      }
       const status = document.getElementById('update-status');
       status.innerText = 'Checking for updates…';
       try {
@@ -786,14 +798,6 @@
       }
       try {
         const registration = await navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
-        registration.addEventListener('updatefound', () => {
-          const worker = registration.installing;
-          worker.addEventListener('statechange', () => {
-            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-              showUpdateReady();
-            }
-          });
-        });
         const controlled = await Promise.race([
           navigator.serviceWorker.ready.then(() => navigator.serviceWorker.controller ? true : new Promise(resolve => {
             navigator.serviceWorker.addEventListener('controllerchange', () => resolve(true), { once: true });
@@ -801,6 +805,7 @@
           })),
           new Promise(resolve => setTimeout(() => resolve(false), 12000))
         ]);
+        navigator.serviceWorker.controller?.postMessage({ type: 'GET_VERSION' });
         offlineStatus.innerText = controlled ? 'App saved. Loading AI for offline use…' : 'App running; offline saving not yet confirmed.';
         return controlled;
       } catch (error) {
@@ -1049,12 +1054,14 @@
 
     if (btnRequestCam) {
       btnRequestCam.addEventListener('click', async () => {
-        cameraPrompt.style.display = 'none';
         await startCamera(true);
       });
     }
 
     async function startCamera(isUserGesture = false) {
+      cameraPrompt.style.display = 'flex';
+      btnRequestCam.disabled = true;
+      document.getElementById('camera-permission-status').innerText = 'Waiting for camera access. Allow the Chrome permission request. AI and settings can load while you decide.';
       if (state.cameraStream) {
         state.cameraStream.getTracks().forEach(t => {
           try { t.stop(); } catch(e) {}
@@ -1133,7 +1140,10 @@
       } else {
         console.warn('Could not auto-start camera; showing user tap prompt');
         if (cameraPrompt) cameraPrompt.style.display = 'flex';
+        document.getElementById('camera-permission-status').innerText = 'Camera unavailable. In Chrome, open site controls beside the address → Permissions → Camera → Allow, then tap Enable camera.';
+        document.getElementById('select-camera-device').innerHTML = '<option value="">Camera permission needed</option>';
       }
+      btnRequestCam.disabled = false;
     }
 
     async function switchCameraSensor(deviceId) {
@@ -2101,7 +2111,12 @@
 
     // --- Bootstrap on Load ---
     window.addEventListener('DOMContentLoaded', async () => {
-      await startCamera();
+      startCamera().catch(error => {
+        console.warn('Camera setup failed:', error);
+        cameraPrompt.style.display = 'flex';
+        btnRequestCam.disabled = false;
+        document.getElementById('camera-permission-status').innerText = 'Camera setup failed. Check camera permission in Chrome and tap Enable camera to retry.';
+      });
       await offlineReady;
       await loadAIModel();
       detectionLoop(); // Start continuous preview & detection loop

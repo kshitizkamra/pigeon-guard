@@ -3,7 +3,9 @@ const http = require('node:http');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
-let version = '16-first';
+let version = '17-first';
+let staleCanonical = false;
+let mismatchedRelease = false;
 const server = http.createServer((req,res) => {
   const name = new URL(req.url,'http://localhost').pathname;
   if(name==='/static/ai/yolox-detector.js') { res.setHeader('Content-Type','application/javascript'); res.end('window.YoloXDetector={load:async()=>({detect:async()=>[],dispose(){}})};'); return; }
@@ -16,8 +18,12 @@ const server = http.createServer((req,res) => {
   if(!filename.startsWith(process.cwd()+path.sep)) {res.writeHead(403).end();return;}
   try {
     let data=fs.readFileSync(filename);
-    if(name==='/service-worker.js') data=Buffer.from(data.toString().replace('pigeon-guard-v16',`pigeon-guard-v${version}`));
-    if(name==='/index.html') data=Buffer.from(data.toString().replace("const APP_VERSION = 'v16'",`const APP_VERSION = 'v${version}'`));
+    if(name==='/service-worker.js') data=Buffer.from(data.toString().replace('pigeon-guard-v17',`pigeon-guard-v${version}`));
+    if(name==='/index.html') {
+      const hasRelease = new URL(req.url,'http://localhost').searchParams.has('app-release');
+      const htmlVersion = mismatchedRelease ? '17-second' : staleCanonical && !hasRelease ? '17-first' : version;
+      data=Buffer.from(data.toString().replace("const APP_VERSION = 'v17'",`const APP_VERSION = 'v${htmlVersion}'`));
+    }
     res.setHeader('Content-Type',name.endsWith('.js')?'application/javascript':name.endsWith('.json')?'application/json':name.endsWith('.png')?'image/png':name.endsWith('.wav')?'audio/wav':'text/html');
     res.setHeader('Cache-Control','no-store');
     res.end(data);
@@ -33,6 +39,8 @@ const server = http.createServer((req,res) => {
     const url=`http://127.0.0.1:${server.address().port}/index.html`;
     await page.goto(url);
     await page.waitForFunction(()=>navigator.serviceWorker.controller && document.getElementById('ai-status-badge').textContent.includes('Ready'));
+    await page.waitForFunction(()=>document.getElementById('update-status').textContent.includes('Running the saved'));
+    assert.equal(await page.locator('#btn-check-update').textContent(),'Check for updates','First install must not report an update');
     await page.evaluate(()=>{deferredInstallPrompt=null;});
     await page.locator('#btn-install-app').click();
     assert(await page.locator('#install-dialog').isVisible());
@@ -61,15 +69,44 @@ const server = http.createServer((req,res) => {
     const offline=await page.evaluate(()=>fetch('./static/sounds/alarm_burst.wav').then(r=>r.ok));
     assert(offline,'Audio asset must work offline');
     await context.setOffline(false);
-    version='16-second';
+    version='17-second';
+    staleCanonical=true; // Reproduce a CDN still serving an older unversioned page.
     await page.evaluate(async()=>{const reg=await navigator.serviceWorker.getRegistration();await reg.update();});
-    await page.waitForFunction(async()=> (await caches.keys()).includes('pigeon-guard-v16-second'));
-    await page.waitForFunction(async()=> !(await caches.keys()).includes('pigeon-guard-v16-first'));
+    await page.waitForFunction(async()=> (await caches.keys()).includes('pigeon-guard-v17-second'));
+    await page.waitForFunction(async()=> !(await caches.keys()).includes('pigeon-guard-v17-first'));
     await page.waitForFunction(()=>document.getElementById('btn-check-update').textContent.includes('Restart'));
     await page.locator('#btn-check-update').click();
-    await page.waitForFunction(()=>document.getElementById('app-version').textContent.includes('v16-second'));
+    await page.waitForFunction(()=>document.getElementById('app-version').textContent.includes('v17-second'));
+    await page.waitForFunction(()=>document.getElementById('btn-check-update').textContent==='Check for updates');
+    for (let i=0;i<2;i++) {
+      await page.reload();
+      await page.waitForFunction(()=>document.getElementById('update-status').textContent.includes('Running the saved v17-second'));
+      assert.equal(await page.locator('#btn-check-update').textContent(),'Check for updates','Reload must clear the restart loop');
+    }
+    version='17-third';
+    mismatchedRelease=true;
+    await page.evaluate(async()=>{
+      const reg=await navigator.serviceWorker.getRegistration();
+      const failed=new Promise(resolve=>reg.addEventListener('updatefound',()=>{
+        const worker=reg.installing;
+        worker.addEventListener('statechange',()=>{if(worker.state==='redundant')resolve();});
+      },{once:true}));
+      await reg.update();
+      await failed;
+    });
+    assert(!await page.evaluate(()=>caches.has('pigeon-guard-v17-third')),'Mismatched HTML must never become the new offline release');
+    await context.setOffline(true);
+    await page.reload();
+    await page.waitForFunction(()=>document.getElementById('update-status').textContent.includes('Running the saved v17-second'));
+    await context.setOffline(false);
+    const pendingCameraPage=await context.newPage();
+    await pendingCameraPage.addInitScript(()=>{navigator.mediaDevices.getUserMedia=()=>new Promise(()=>{});});
+    await pendingCameraPage.goto(url);
+    await pendingCameraPage.waitForFunction(()=>state.modelReady);
+    assert(await pendingCameraPage.locator('#camera-permission-prompt').isVisible(),'Unanswered permission must have visible camera help');
+    await pendingCameraPage.close();
     assert(await page.evaluate(()=>caches.has('pigeon-guard-models-v1')),'Updates must preserve AI cache');
     assert.deepEqual(errors,[]);
-    console.log('PASS: install fallback, offline page/scripts/audio, update activation, preserved model cache, no browser errors (AI stubbed)');
+    console.log('PASS: installation, offline storage, stale CDN recovery, repeated refresh without restart loop, mismatched release rejection, pending camera does not block AI (AI stubbed)');
   }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});

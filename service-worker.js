@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pigeon-guard-v16';
+const CACHE_NAME = 'pigeon-guard-v17';
 const MODEL_CACHE = 'pigeon-guard-models-v1';
 const ASSETS_TO_CACHE = [
   './index.html', './manifest.json',
@@ -11,8 +11,28 @@ const ASSETS_TO_CACHE = [
 ];
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
+    // A deployment may briefly serve an older HTML response through its CDN.
+    // Never label that response as the new release in the offline cache.
+    const responses = await Promise.all(ASSETS_TO_CACHE.map(async asset => {
+      const canonical = new URL(asset, self.registration.scope);
+      const fresh = new URL(canonical);
+      fresh.searchParams.set('app-release', CACHE_NAME);
+      const response = await fetch(fresh.href, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`App asset unavailable: ${asset}`);
+      // Drain every response before waiting on the whole bundle. Otherwise
+      // unconsumed bodies can occupy all browser connections during installation.
+      const body = await response.clone().arrayBuffer();
+      if (asset === './index.html') {
+        const html = new TextDecoder().decode(body);
+        const version = html.match(/const APP_VERSION = '([^']+)'/);
+        if (!version || `pigeon-guard-${version[1]}` !== CACHE_NAME) {
+          throw new Error('Page and offline worker releases do not match; keeping the previous app');
+        }
+      }
+      return [canonical.href, response];
+    }));
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(ASSETS_TO_CACHE);
+    await Promise.all(responses.map(([url, response]) => cache.put(url, response)));
     await self.skipWaiting();
   })());
 });
