@@ -496,6 +496,9 @@
       <div class="card-title">Install on this phone</div>
       <button class="btn-action" id="btn-install-app">Install Pigeon Guard</button>
       <p id="install-help" role="status" style="font-size:12px;color:var(--text-muted);margin-top:8px">Open once online to save the app and AI. Future launches use the phone's saved copy; updates download in the background.</p>
+      <p id="app-version" style="font-size:12px;color:var(--text-muted);margin-top:8px"></p>
+      <button class="btn-action" id="btn-check-update">Check for updates</button>
+      <p id="update-status" role="status" style="font-size:12px;color:var(--text-muted)"></p>
     </div>
 
     <!-- Camera Sensor & Field of View Card (Solves Zoomed In View) -->
@@ -661,7 +664,16 @@
     </div>
   </div>
 
+  <dialog id="install-dialog" aria-labelledby="install-dialog-title" style="margin:auto;padding:22px;max-width:360px;width:90%;border:1px solid #8a99ad;border-radius:14px;background:#111726;color:#f0f4f8">
+    <h2 id="install-dialog-title" style="font-size:18px;margin-bottom:12px">Install Pigeon Guard</h2>
+    <p id="install-dialog-message" style="font-size:14px;line-height:1.6"></p>
+    <p style="font-size:12px;margin:12px 0">App address:</p>
+    <input id="install-address" readonly style="width:100%;padding:8px" aria-label="App address">
+    <button class="btn-action" id="btn-copy-address" style="margin-top:10px">Copy app address</button>
+    <form method="dialog"><button class="btn-action" style="margin-top:16px">Close</button></form>
+  </dialog>
   <script>
+    const APP_VERSION = 'v15';
     // --- Application State ---
     const state = {
       isGuarding: false,
@@ -727,6 +739,35 @@
     const btnClearCaptures = document.getElementById('btn-clear-captures');
 
     const offlineStatus = document.getElementById('offline-status');
+    document.getElementById('app-version').innerText = `App version: ${APP_VERSION}`;
+    let updateAvailable = false;
+    const updateButton = document.getElementById('btn-check-update');
+    function showUpdateReady() {
+      updateAvailable = true;
+      updateButton.innerText = 'Restart to use update';
+      document.getElementById('update-status').innerText = 'New version saved. Restart when you are ready; guarding will stop.';
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data?.type === 'APP_VERSION' && event.data.version !== `pigeon-guard-${APP_VERSION}`) showUpdateReady();
+      });
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        navigator.serviceWorker.controller?.postMessage({ type: 'GET_VERSION' });
+      });
+    }
+    updateButton.addEventListener('click', async () => {
+      if (updateAvailable) { location.reload(); return; }
+      const status = document.getElementById('update-status');
+      status.innerText = 'Checking for updates…';
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (!registration) throw new Error('No service worker');
+        await registration.update();
+        navigator.serviceWorker.controller?.postMessage({ type: 'GET_VERSION' });
+        if (registration.installing) status.innerText = 'Downloading update…';
+        else if (!updateAvailable) status.innerText = `Update check complete. Running ${APP_VERSION}.`;
+      } catch (error) { status.innerText = 'Could not check for updates. Connect to the internet and try again.'; }
+    });
     const offlineReady = (async () => {
       if (!('serviceWorker' in navigator)) {
         offlineStatus.innerText = 'Offline installation is unavailable in this browser.';
@@ -738,7 +779,7 @@
           const worker = registration.installing;
           worker.addEventListener('statechange', () => {
             if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-              document.getElementById('install-help').innerText = 'Update saved. Close and reopen the app to use it.';
+              showUpdateReady();
             }
           });
         });
@@ -763,10 +804,18 @@
     const pixelInstallBanner = document.getElementById('pixel-install-banner');
     const btnNativeInstall = document.getElementById('btn-native-install');
     const btnInstallApp = document.getElementById('btn-install-app');
-    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
-      btnInstallApp.innerText = 'Installed on this phone';
-      btnInstallApp.disabled = true;
+    const runningAsApp = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    if (runningAsApp()) btnInstallApp.innerText = 'Home-screen app help';
+    function showInstallHelp(message) {
+      document.getElementById('install-dialog-message').innerText = message;
+      document.getElementById('install-address').value = new URL('./index.html', location.href).href;
+      document.getElementById('install-dialog').showModal();
     }
+    document.getElementById('btn-copy-address').addEventListener('click', async () => {
+      const address = document.getElementById('install-address');
+      try { await navigator.clipboard.writeText(address.value); document.getElementById('btn-copy-address').innerText = 'Address copied'; }
+      catch { address.select(); }
+    });
 
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -777,15 +826,25 @@
     });
 
     async function installApp() {
+        if (runningAsApp()) {
+          showInstallHelp('You are currently using an app window. Look for PigeonGuard in your home screen or app drawer. To manage installation in Chrome, copy the address below and open it directly in Chrome.');
+          return;
+        }
         if (deferredInstallPrompt) {
-          await deferredInstallPrompt.prompt();
-          const { outcome } = await deferredInstallPrompt.userChoice;
+          const prompt = deferredInstallPrompt;
+          deferredInstallPrompt = null;
+          try {
+          await prompt.prompt();
+          const { outcome } = await prompt.userChoice;
           console.log('[PigeonGuard] Install outcome:', outcome);
           deferredInstallPrompt = null;
           pixelInstallBanner.style.display = 'none';
           document.getElementById('install-help').innerText = outcome === 'accepted' ? 'Installation requested. Launch Pigeon Guard from your home screen.' : 'Installation cancelled. You can try again from the browser menu.';
+          } catch (error) {
+            showInstallHelp('The browser could not open its install prompt. Open this address in Chrome, tap ⋮, then Add to home screen → Install.');
+          }
         } else {
-          document.getElementById('install-help').innerText = 'In Chrome: open the ⋮ menu → Add to home screen → Install. On iPhone: Safari → Share → Add to Home Screen. If already installed, open its home-screen icon.';
+          showInstallHelp('The browser has not offered an install prompt. On your Pixel, open this address directly in Chrome, tap ⋮, then Add to home screen → Install. If you opened it inside WhatsApp, open it in Chrome first. On iPhone, use Safari → Share → Add to Home Screen.');
         }
     }
     btnNativeInstall.addEventListener('click', installApp);
@@ -793,8 +852,8 @@
     window.addEventListener('appinstalled', () => {
       pixelInstallBanner.style.display = 'none';
       deferredInstallPrompt = null;
-      btnInstallApp.innerText = 'Installed on this phone';
-      btnInstallApp.disabled = true;
+      btnInstallApp.innerText = 'Home-screen app help';
+      document.getElementById('install-help').innerText = 'Browser reports installation complete. Look for PigeonGuard in your app drawer.';
     });
 
     // Battery Status
@@ -1414,6 +1473,8 @@
     let liveScanIndex = 0;
     let liveZoneKey = '';
     let lastBirdBox = null;
+    let lastBirdView = null;
+    let activeLiveView = null;
     let uiPauseUntil = 0;
     let sliderHeld = false;
     const pauseForControls = () => {
@@ -1451,7 +1512,7 @@
     }
 
     async function scanLive(w, h) {
-      const key = JSON.stringify(state.zone) + document.getElementById('select-scan-mode').value;
+      const key = JSON.stringify(state.zone) + document.getElementById('select-scan-mode').value + `${w}x${h}`;
       if (key !== liveZoneKey) {
         liveScanIndex = 0;
         lastBirdBox = null;
@@ -1460,15 +1521,14 @@
       let view;
       if (document.getElementById('select-scan-mode').value === 'full') {
         view = [0, 0, w, h];
-      } else if (lastBirdBox) {
-        const [bx, by, bw, bh] = lastBirdBox;
-        const size = Math.min(Math.max(bw, bh) * 3, w, h);
-        view = [Math.max(0, Math.min(w - size, bx + bw / 2 - size / 2)),
-          Math.max(0, Math.min(h - size, by + bh / 2 - size / 2)), size, size];
+      } else if (lastBirdBox && lastBirdView) {
+        // Keep the context that recognised the bird; a tighter crop can change its class.
+        view = lastBirdView;
       } else {
         const views = closeViews(w, h, state.zone);
         view = views[liveScanIndex++ % views.length];
       }
+      activeLiveView = view.slice();
       const [sx, sy, sw, sh] = view;
       const scale = Math.min(1, 640 / Math.max(sw, sh));
       scanCrop.width = Math.max(1, Math.round(sw * scale));
@@ -1668,6 +1728,7 @@
                 pigeonFoundInZone = true;
                 detectedBox = pred.bbox;
                 lastBirdBox = pred.bbox;
+                lastBirdView = activeLiveView?.slice();
               }
             }
           }
@@ -1697,6 +1758,11 @@
           }
         } catch (e) {
           console.warn('Detection error:', e);
+          state.consecutiveBirdFrames = 0;
+          lastBirdBox = null;
+          const ticker = document.getElementById('ai-detected-objects-ticker');
+          ticker.innerText = 'AI scan failed — retrying. Restart the app if this continues.';
+          ticker.style.color = '#ffab00';
         } finally {
           isDetecting = false;
           setTimeout(() => requestAnimationFrame(detectionLoop), 100);
@@ -1974,7 +2040,8 @@
         const modelCache = await caches.open('pigeon-guard-models-v1');
         const keys = await modelCache.keys();
         let complete = false;
-        for (const key of keys.filter(k => k.url.includes(`/ssd_${state.modelBase}/`) && k.url.includes('.json'))) {
+        const modelDirectory = state.modelBase === 'lite_mobilenet_v2' ? 'ssdlite_mobilenet_v2' : `ssd_${state.modelBase}`;
+        for (const key of keys.filter(k => k.url.includes(`/${modelDirectory}/`) && k.url.includes('.json'))) {
           const response = await modelCache.match(key);
           const graph = await response.json();
           const paths = (graph.weightsManifest || []).flatMap(group => group.paths || []);

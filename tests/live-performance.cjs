@@ -11,7 +11,7 @@ const context = { video: {}, setTimeout, document: { getElementById: () => ({ va
     model: { detect: async (image, count, threshold) => { calls.push({ count, threshold }); return [{ class: 'bird', score: 0.5, bbox: [0, 0, image.width, image.height] }]; } } }
 };
 vm.createContext(context);
-vm.runInContext('let liveScanIndex=0, liveZoneKey="", lastBirdBox=null;\n' + functions, context);
+vm.runInContext('let liveScanIndex=0, liveZoneKey="", lastBirdBox=null, lastBirdView=null, activeLiveView=null;\n' + functions, context);
 (async () => {
   for (let i=0; i<5; i++) {
     const before = calls.length;
@@ -22,10 +22,11 @@ vm.runInContext('let liveScanIndex=0, liveZoneKey="", lastBirdBox=null;\n' + fun
     assert(x+w<=1204*0.78+1e-6 && y+h<=1600*0.66+1e-6);
   }
   assert(draws.some(d => d[1] !== draws[0][1] || d[3] !== draws[0][3]), 'Views must rotate');
-  vm.runInContext('lastBirdBox=[700,850,50,70]',context);
+  const recognisedView = draws.at(-1).slice(1,5);
+  vm.runInContext('lastBirdBox=[700,850,50,70]; lastBirdView=activeLiveView.slice()',context);
   await context.scanLive(1204,1600);
   const tracked = draws.at(-1);
-  assert(tracked[1]<=700 && tracked[1]+tracked[3]>=750, 'Confirmation view must contain previous bird');
+  assert.deepEqual(tracked.slice(1,5), recognisedView, 'Confirmation must keep the exact crop that recognised the bird');
   context.state.zone = { left: 0, right: 0.2, top: 0, bottom: 0.2 };
   await context.scanLive(1204,1600);
   assert(draws.at(-1)[1]+draws.at(-1)[3]<=1204*0.2+1e-6, 'Zone changes clear old tracking');

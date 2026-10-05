@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pigeon-guard-v14';
+const CACHE_NAME = 'pigeon-guard-v15';
 const MODEL_CACHE = 'pigeon-guard-models-v1';
 const ASSETS_TO_CACHE = [
   './index.html', './manifest.json',
@@ -13,6 +13,11 @@ self.addEventListener('install', event => {
     await cache.addAll(ASSETS_TO_CACHE);
     await self.skipWaiting();
   })());
+});
+self.addEventListener('message', event => {
+  if (event.data?.type === 'GET_VERSION') {
+    event.source?.postMessage({ type: 'APP_VERSION', version: CACHE_NAME });
+  }
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
