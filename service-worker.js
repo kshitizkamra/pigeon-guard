@@ -1,74 +1,44 @@
-const CACHE_NAME = 'pigeon-guard-v13';
+const CACHE_NAME = 'pigeon-guard-v14';
+const MODEL_CACHE = 'pigeon-guard-models-v1';
 const ASSETS_TO_CACHE = [
-  './static/tf.min.js',
-  './static/coco-ssd.min.js',
-  './static/sounds/falcon_screech.wav',
-  './static/sounds/alarm_burst.wav',
+  './index.html', './manifest.json',
+  './static/tf.min.js', './static/coco-ssd.min.js',
+  './static/sounds/falcon_screech.wav', './static/sounds/alarm_burst.wav',
   './static/sounds/ultrasonic_sweep.wav',
-  './static/icon-192.png',
-  './static/icon-512.png',
-  './manifest.json'
+  './static/icon-192.png', './static/icon-512.png'
 ];
-
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[ServiceWorker v7] Caching offline assets');
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
-  );
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(ASSETS_TO_CACHE);
+    await self.skipWaiting();
+  })());
 });
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keyList) => {
-      return Promise.all(
-        keyList.map((key) => {
-          if (key !== CACHE_NAME) {
-            console.log('[ServiceWorker] Purging old cache:', key);
-            return caches.delete(key);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key.startsWith('pigeon-guard-v') && key !== CACHE_NAME)
+      .map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
-
-self.addEventListener('fetch', (event) => {
-  const url = event.request.url;
-
-  // 1. NETWORK-FIRST for HTML / page navigations (Ensures code updates load immediately!)
-  if (event.request.mode === 'navigate' || url.endsWith('/') || url.includes('index.html')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          return caches.match(event.request) || caches.match('./index.html');
-        })
-    );
-    return;
-  }
-
-  // 2. CACHE-FIRST for heavy static JS & audio files
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        if (event.request.method === 'GET' && (networkResponse.status === 200 || networkResponse.status === 0)) {
-          const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return networkResponse;
-      });
-    })
-  );
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  const isLocal = url.origin === self.location.origin && url.href.startsWith(self.registration.scope);
+  const isModel = url.hostname === 'storage.googleapis.com' || url.hostname === 'tfhub.dev';
+  if (!isLocal && !isModel) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(isModel ? MODEL_CACHE : CACHE_NAME);
+    const cached = event.request.mode === 'navigate'
+      ? await cache.match(new URL('index.html', self.registration.scope).href)
+      : await cache.match(event.request);
+    if (cached) return cached;
+    const response = await fetch(event.request);
+    if (response.ok || response.type === 'opaque') {
+      try { await cache.put(event.request, response.clone()); }
+      catch (error) { console.warn('Offline storage failed:', error); }
+    }
+    return response;
+  })());
 });
