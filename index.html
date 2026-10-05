@@ -594,12 +594,19 @@
     <div class="card">
       <div class="card-title">Ledge focus</div>
       <button class="btn-action" id="btn-left-ledge">Focus left ledge (match supplied photo)</button>
+      <button class="btn-action" id="btn-far-corner">Focus far balcony floor (new photos)</button>
       <button class="btn-action" id="btn-full-zone">Restore full balcony zone</button>
       <div class="setting-item"><label for="slider-zone-left">Left boundary <span id="val-zone-left">0%</span></label><input type="range" id="slider-zone-left" min="0" max="90" value="0"></div>
       <div class="setting-item"><label for="slider-zone-right">Right boundary <span id="val-zone-right">100%</span></label><input type="range" id="slider-zone-right" min="10" max="100" value="100"></div>
       <p style="font-size:12px;color:var(--text-muted)">The preset includes space above the left ledge for a perched bird. Adjust all four boundaries to your live camera view after mounting the phone.</p>
     </div>
     <!-- Sound & Deterrent Preferences -->
+    <div class="card">
+      <div class="card-title">Test a real balcony photo</div>
+      <input type="file" id="photo-test" accept="image/*">
+      <p id="photo-test-status" role="status" style="font-size:12px;color:var(--text-muted)">Choose a photo to test the current zone and sensitivity. Photo tests never play the alarm.</p>
+      <canvas id="photo-test-result" style="display:none;width:100%;height:auto"></canvas>
+    </div>
     <div class="card">
       <div class="card-title">
         <span>🔊 Deterrent Sound & Scare Settings</span>
@@ -1237,18 +1244,18 @@
       try {
         aiBadge.innerText = 'Loading AI...';
         // cocoSsd is loaded globally via coco-ssd.min.js
-        state.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        state.model = await cocoSsd.load({ base: 'mobilenet_v2' });
         state.modelReady = true;
-        aiBadge.innerText = 'AI Ready';
+        aiBadge.innerText = 'AI Ready · Full model';
         aiBadge.className = 'badge green';
         btnToggleGuard.disabled = false;
         console.log('[PigeonGuard] TensorFlow AI Model Loaded Successfully');
       } catch (err) {
-        console.warn('Lite model failed, trying default:', err);
+        console.warn('Full model failed, trying lightweight fallback:', err);
         try {
-          state.model = await cocoSsd.load();
+          state.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
           state.modelReady = true;
-          aiBadge.innerText = 'AI Ready';
+          aiBadge.innerText = 'AI Ready · Lite fallback';
           aiBadge.className = 'badge green';
           btnToggleGuard.disabled = false;
         } catch (e2) {
@@ -1358,10 +1365,10 @@
     const scanFrame = document.createElement('canvas');
     const scanCrop = document.createElement('canvas');
 
-    async function scanBalcony(w, h) {
+    async function scanBalcony(w, h, source = video) {
       scanFrame.width = w;
       scanFrame.height = h;
-      scanFrame.getContext('2d').drawImage(video, 0, 0, w, h);
+      scanFrame.getContext('2d').drawImage(source, 0, 0, w, h);
       const threshold = state.settings.confidence;
       const predictions = await state.model.detect(scanFrame, 20, threshold);
       if (document.getElementById('select-scan-mode').value === 'full') return predictions;
@@ -1370,7 +1377,9 @@
       const width = (zone.right - zone.left) * w;
       const height = (zone.bottom - zone.top) * h;
       // Overlapping square crops preserve detail at the model's fixed input size.
-      const size = Math.min(Math.max(width, height) * 0.6, width, height);
+      // Two scales: context around a bird, then smaller patches for distant birds.
+      for (const fraction of [0.6, 0.25]) {
+      const size = Math.min(Math.max(width, height) * fraction, width, height);
       const columns = Math.min(4, Math.max(1, Math.ceil(width / size)));
       const rows = Math.min(4, Math.max(1, Math.ceil(height / size)));
       scanCrop.width = scanCrop.height = Math.min(640, Math.round(size));
@@ -1386,8 +1395,70 @@
           }
         }
       }
+      }
       return predictions;
     }
+
+    let photoTesting = false;
+    document.getElementById('photo-test').addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (!file || photoTesting) return;
+      const status = document.getElementById('photo-test-status');
+      const result = document.getElementById('photo-test-result');
+      result.style.display = 'none';
+      if (!state.modelReady) {
+        status.innerText = 'Wait for AI Ready, then choose the photo again.';
+        e.target.value = '';
+        return;
+      }
+      photoTesting = true;
+      e.target.disabled = true;
+      state.consecutiveBirdFrames = 0;
+      status.innerText = 'Testing photo… live scans paused.';
+      const url = URL.createObjectURL(file);
+      try {
+        while (isDetecting) await new Promise(resolve => setTimeout(resolve, 50));
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        const zone = { ...state.zone };
+        const predictions = await scanBalcony(image.naturalWidth, image.naturalHeight, image);
+        result.width = image.naturalWidth;
+        result.height = image.naturalHeight;
+        const rc = result.getContext('2d');
+        rc.drawImage(image, 0, 0);
+        rc.strokeStyle = '#00e676';
+        rc.lineWidth = Math.max(3, result.width / 300);
+        rc.strokeRect(zone.left * result.width, zone.top * result.height,
+          (zone.right - zone.left) * result.width, (zone.bottom - zone.top) * result.height);
+        const birds = predictions.filter(p => p.class === 'bird');
+        let inZone = false;
+        for (const p of birds) {
+          const [x,y,w,h] = p.bbox;
+          const inside = (x+w/2)/result.width >= zone.left && (x+w/2)/result.width <= zone.right &&
+            (y+h/2)/result.height >= zone.top && (y+h/2)/result.height <= zone.bottom;
+          inZone ||= inside;
+          rc.strokeStyle = inside ? '#ff1744' : '#ffab00';
+          rc.strokeRect(x,y,w,h);
+          rc.fillStyle = rc.strokeStyle;
+          rc.font = `${Math.max(16, result.width / 60)}px sans-serif`;
+          rc.fillText(`Bird ${Math.round(p.score*100)}%`, x, Math.max(24,y-8));
+        }
+        result.style.display = 'block';
+        status.innerText = inZone ? 'Bird candidate found inside zone. Inspect the red boxes to confirm it is the pigeon.' :
+          birds.length ? 'Bird candidate found outside zone. Adjust the zone and retest.' :
+          'No bird found at this sensitivity. This scene is still a miss; adjust the zone or try a closer camera position.';
+      } catch (error) {
+        console.warn('Photo test failed:', error);
+        status.innerText = 'Photo test failed. Choose a supported image and try again.';
+      } finally {
+        URL.revokeObjectURL(url);
+        photoTesting = false;
+        state.consecutiveBirdFrames = 0;
+        e.target.disabled = false;
+        e.target.value = '';
+      }
+    });
 
     async function detectionLoop() {
       const now = performance.now();
@@ -1396,7 +1467,7 @@
       state.fps = Math.round(1000 / (delta || 1));
       fpsCounter.innerText = `FPS: ${state.fps} | ${state.isGuarding ? 'ARMED' : 'PREVIEW'}`;
 
-      if (state.model && video.readyState >= 2 && !isDetecting) {
+      if (state.model && video.readyState >= 2 && !isDetecting && !photoTesting) {
         isDetecting = true;
         try {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1425,7 +1496,7 @@
           const sourceStream = state.cameraStream;
           const zoneKey = JSON.stringify(state.zone);
           const predictions = await scanBalcony(cw, ch);
-          if (sourceStream !== state.cameraStream || zoneKey !== JSON.stringify(state.zone)) {
+          if (photoTesting || sourceStream !== state.cameraStream || zoneKey !== JSON.stringify(state.zone)) {
             state.consecutiveBirdFrames = 0;
             return;
           }
@@ -1510,10 +1581,11 @@
           isDetecting = false;
           requestAnimationFrame(detectionLoop);
         }
+        return;
       }
 
       // Keep detection loop running smoothly
-      if (!state.model || video.readyState < 2) requestAnimationFrame(detectionLoop);
+      if (!state.model || video.readyState < 2 || photoTesting) requestAnimationFrame(detectionLoop);
     }
 
     // --- UI Controls & Event Listeners ---
@@ -1728,6 +1800,10 @@
     });
     document.getElementById('btn-full-zone').addEventListener('click', () => {
       state.zone = { left: 0, right: 1, top: 0.1, bottom: 0.98 };
+      syncZoneControls();
+    });
+    document.getElementById('btn-far-corner').addEventListener('click', () => {
+      state.zone = { left: 0.45, right: 0.78, top: 0.44, bottom: 0.66 };
       syncZoneControls();
     });
 
