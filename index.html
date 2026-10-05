@@ -410,6 +410,7 @@
   <!-- Offline-first TensorFlow.js and COCO-SSD -->
   <script src="static/tf.min.js"></script>
   <script src="static/coco-ssd.min.js"></script>
+  <script src="static/ai/yolox-detector.js"></script>
 </head>
 <body>
 
@@ -592,6 +593,14 @@
 
     <div class="card">
       <div class="setting-item">
+        <label for="select-ai-model">Detection model</label>
+        <select id="select-ai-model">
+          <option value="yolox">YOLOX Tiny — new model to try</option>
+          <option value="coco">COCO SSD — previous model</option>
+        </select>
+        <p id="model-help" role="status" style="font-size:12px;color:var(--text-muted)">YOLOX is an experimental alternative. Both models detect birds generally and can miss pigeons. First use downloads its model; later launches use the saved copy.</p>
+      </div>
+      <div class="setting-item">
         <label for="select-scan-mode">Detection scan</label>
         <select id="select-scan-mode">
           <option value="detail">Distant birds: rotate close views, one scan at a time</option>
@@ -599,6 +608,8 @@
         </select>
         <p style="font-size:12px;color:var(--text-muted)">Keep the whole pigeon and ledge inside a small green zone for faster detection. Scans pause while adjusting sliders. Photo tests scan all close views.</p>
       </div>
+      <button class="btn-action" id="btn-training-photo">Save camera photo for training</button>
+      <p id="training-photo-status" role="status" style="font-size:12px;color:var(--text-muted)">Save pigeons at different distances and empty balcony scenes. Photos save locally; they are not uploaded or used to train automatically.</p>
     </div>
     <div class="card">
       <div class="card-title">Ledge focus</div>
@@ -673,7 +684,7 @@
     <form method="dialog"><button class="btn-action" style="margin-top:16px">Close</button></form>
   </dialog>
   <script>
-    const APP_VERSION = 'v15';
+    const APP_VERSION = 'v16';
     // --- Application State ---
     const state = {
       isGuarding: false,
@@ -1343,34 +1354,48 @@
     }
     window.addEventListener('resize', resizeCanvas);
 
-    // --- AI Model Loading (COCO-SSD / MobileNet) ---
+    // --- Swappable detectors; both expose detect(source, maxBoxes, threshold). ---
+    const modelSelect = document.getElementById('select-ai-model');
+    try {
+      const savedModel = localStorage.getItem('pigeon-guard-model');
+      if (['yolox', 'coco'].includes(savedModel)) modelSelect.value = savedModel;
+    } catch {}
     async function loadAIModel() {
+      state.modelReady = false;
+      btnToggleGuard.disabled = true;
+      modelSelect.disabled = true;
       try {
         aiBadge.innerText = 'Loading AI...';
-        // cocoSsd is loaded globally via coco-ssd.min.js
-        state.model = await cocoSsd.load({ base: 'mobilenet_v2' });
-        state.modelBase = 'mobilenet_v2';
+        state.model = modelSelect.value === 'yolox'
+          ? await YoloXDetector.load() : await cocoSsd.load({ base: 'mobilenet_v2' });
+        state.modelBase = modelSelect.value === 'yolox' ? 'yolox_tiny' : 'mobilenet_v2';
         state.modelReady = true;
-        aiBadge.innerText = 'AI Ready · Full model';
+        aiBadge.innerText = `AI Ready · ${modelSelect.value === 'yolox' ? 'YOLOX Tiny' : 'COCO SSD'}`;
         aiBadge.className = 'badge green';
         btnToggleGuard.disabled = false;
-        console.log('[PigeonGuard] TensorFlow AI Model Loaded Successfully');
+        await checkOfflineModel();
       } catch (err) {
-        console.warn('Full model failed, trying lightweight fallback:', err);
-        try {
-          state.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-          state.modelBase = 'lite_mobilenet_v2';
-          state.modelReady = true;
-          aiBadge.innerText = 'AI Ready · Lite fallback';
-          aiBadge.className = 'badge green';
-          btnToggleGuard.disabled = false;
-        } catch (e2) {
-          console.error('Failed to load AI model:', e2);
-          aiBadge.innerText = 'AI Load Error';
-          aiBadge.className = 'badge red';
-        }
-      }
+        console.error('Failed to load selected AI model:', err);
+        state.model = null;
+        aiBadge.innerText = 'AI Load Error';
+        aiBadge.className = 'badge red';
+        document.getElementById('model-help').innerText = 'Could not load this model. Connect to the internet and select it again, or select the previous model.';
+      } finally { modelSelect.disabled = false; }
     }
+
+    modelSelect.addEventListener('change', async () => {
+      state.modelReady = false;
+      modelSelect.disabled = true;
+      btnToggleGuard.disabled = true;
+      while (isDetecting || photoTesting) await new Promise(resolve => setTimeout(resolve, 50));
+      state.model?.dispose();
+      state.model = null;
+      lastBirdBox = null;
+      state.consecutiveBirdFrames = 0;
+      liveScanIndex = 0;
+      try { localStorage.setItem('pigeon-guard-model', modelSelect.value); } catch {}
+      await loadAIModel();
+    });
 
     // --- Trigger Scare Sequence ---
     async function triggerScare(birdBox = null) {
@@ -1643,7 +1668,7 @@
       state.fps = Math.round(1000 / (delta || 1));
       fpsCounter.innerText = `${sliderHeld ? 'Adjusting zone' : 'Scanning'} | ${state.isGuarding ? 'ARMED' : 'PREVIEW'}`;
 
-      if (state.model && video.readyState >= 2 && !isDetecting && !photoTesting && !sliderHeld && now >= uiPauseUntil) {
+      if (state.modelReady && state.model && video.readyState >= 2 && !isDetecting && !photoTesting && !sliderHeld && now >= uiPauseUntil) {
         isDetecting = true;
         try {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2030,33 +2055,55 @@
       snapshotsGallery.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:10px;">Cleared all snapshots.</div>';
     });
 
+    document.getElementById('btn-training-photo').addEventListener('click', () => {
+      const status = document.getElementById('training-photo-status');
+      if (video.readyState < 2 || !video.videoWidth) {
+        status.innerText = 'Start the camera first, then save a photo.';
+        return;
+      }
+      const sample = document.createElement('canvas');
+      sample.width = video.videoWidth;
+      sample.height = video.videoHeight;
+      sample.getContext('2d').drawImage(video, 0, 0);
+      sample.toBlob(blob => {
+        if (!blob) { status.innerText = 'Could not save this photo. Try again.'; return; }
+        const url = URL.createObjectURL(blob), link = document.createElement('a');
+        link.href = url;
+        link.download = `balcony-${Date.now()}.jpg`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        status.innerText = 'Photo sent to Downloads. Keep pigeon and empty-balcony photos for labelling; training has not run.';
+      }, 'image/jpeg', 0.95);
+    });
+
+    async function checkOfflineModel() {
+      if (!state.modelReady) return;
+      try {
+        const modelCache = await caches.open('pigeon-guard-models-v1');
+        if (state.modelBase === 'yolox_tiny') {
+          const files = ['yolox_tiny.onnx', 'ort-wasm-simd-threaded.wasm'];
+          const saved = await Promise.all(files.map(file => modelCache.match(new URL(`static/ai/${file}`, location.href).href)));
+          offlineStatus.innerText = saved.every(Boolean) ? 'YOLOX model and runtime saved for offline use.' : 'YOLOX ready. Offline saving not confirmed; keep internet available.';
+          return;
+        }
+        const keys = await modelCache.keys();
+        let complete = false;
+        for (const key of keys.filter(k => k.url.includes('/ssd_mobilenet_v2/') && k.url.includes('.json'))) {
+          const graph = await (await modelCache.match(key)).json();
+          const paths = (graph.weightsManifest || []).flatMap(group => group.paths || []);
+          const shards = await Promise.all(paths.map(p => modelCache.match(new URL(p, key.url).href)));
+          complete = paths.length > 0 && shards.every(Boolean);
+          if (complete) break;
+        }
+        offlineStatus.innerText = complete ? 'COCO model saved for offline use.' : 'COCO ready. Offline saving not confirmed; keep internet available.';
+      } catch { offlineStatus.innerText = 'AI ready. Offline storage check failed; keep internet available.'; }
+    }
+
     // --- Bootstrap on Load ---
     window.addEventListener('DOMContentLoaded', async () => {
       await startCamera();
-      const saved = await offlineReady;
+      await offlineReady;
       await loadAIModel();
-      if (saved && state.modelReady) {
-        try {
-        const modelCache = await caches.open('pigeon-guard-models-v1');
-        const keys = await modelCache.keys();
-        let complete = false;
-        const modelDirectory = state.modelBase === 'lite_mobilenet_v2' ? 'ssdlite_mobilenet_v2' : `ssd_${state.modelBase}`;
-        for (const key of keys.filter(k => k.url.includes(`/${modelDirectory}/`) && k.url.includes('.json'))) {
-          const response = await modelCache.match(key);
-          const graph = await response.json();
-          const paths = (graph.weightsManifest || []).flatMap(group => group.paths || []);
-          if (paths.length) {
-            const shards = await Promise.all(paths.map(p => modelCache.match(new URL(p, key.url).href)));
-            complete = shards.every(Boolean);
-            if (complete) break;
-          }
-        }
-        offlineStatus.innerText = complete ? 'App and AI saved on this phone. Ready for offline use.' : 'AI ready. Offline AI storage not confirmed; keep internet available.';
-        } catch (error) {
-          console.warn('Offline AI check failed:', error);
-          offlineStatus.innerText = 'AI ready. Offline storage check failed; keep internet available.';
-        }
-      }
       detectionLoop(); // Start continuous preview & detection loop
     });
   </script>

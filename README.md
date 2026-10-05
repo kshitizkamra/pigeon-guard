@@ -1,67 +1,51 @@
-# 🦅 Pigeon Guard - Standalone On-Device Balcony Deterrent
+# Pigeon Guard
 
-A 100% self-contained, AI-powered balcony pigeon scare system designed to run directly on an old Android smartphone with **NO Wi-Fi, NO internet, and NO extra hardware required**.
+An experimental balcony bird detector with local alarms. Open the
+[phone app](https://kshitizkamra.github.io/pigeon-guard/) in Chrome, allow camera
+access, and choose **Install Pigeon Guard** or Chrome's **Add to home screen**.
 
----
+The camera, detection and audio run locally. First use needs internet to save
+the app and the selected model. Check the offline-storage status before relying
+on offline operation; browser storage can be cleared or evicted.
 
-## 🚀 Quick Setup Instructions
+## Trying the detectors
 
-### Step 1: Open the App on Your Old Android Phone
-1. Connect your old phone to your home Wi-Fi just once to load the app.
-2. Open **Google Chrome** on your phone.
-3. In the address bar, type:
-   ```
-   https://192.168.29.113:8443
-   ```
-   *(Note: Because this uses a local self-signed SSL certificate so Chrome allows camera access, Chrome will show a **"Your connection is not private"** warning. Tap **Advanced** ➔ **Proceed to 192.168.29.113**).*
+**Detection model** switches between YOLOX Tiny (new experimental default) and
+COCO SSD (previous detector). Neither has been trained specifically on this
+balcony. Both use the general `bird` class and can miss pigeons or produce false
+positives. A model being ready does not establish detection accuracy.
 
-4. Chrome will ask for **Camera permission** — tap **Allow**.
+YOLOX uses ONNX Runtime in a worker, keeping inference off the UI thread. Its
+initial model/runtime download is about 32 MB. Models are cached separately from
+the app so normal page updates can retain them. The app displays the exact
+release version and provides **Check for updates** / **Restart to use update**.
 
----
+Set the green region around the relevant ledge/floor, leaving space for the
+whole pigeon. Detail mode rotates through close views, one inference at a time,
+and confirms birds using the same crop on a fresh frame. Full-view mode is
+faster but can miss small birds. **Test a balcony photo** checks a frozen photo
+without sounding the alarm. Arm the app separately when testing actual alarms.
 
-### Step 2: Install as an Offline App (PWA)
-1. Tap the **3 dots (⋮)** in the top right corner of Chrome.
-2. Select **"Add to Home screen"** (or **"Install App"**).
-3. An icon named **PigeonGuard** will appear on your phone's home screen just like a regular native Android app.
+## Training and independent camera hardware
 
----
+**Save camera photo for training** downloads an unannotated camera frame locally.
+It does not upload the image or train a model. See
+[the collection, training and independent-device plan](docs/training-and-device.md).
+A separate camera/speaker/microSD system also needs a processor to run detection.
+The current browser app is not yet a hardware service that starts at boot.
 
-### Step 3: Turn Off Wi-Fi (100% Offline Mode)
-* **You can now completely turn off Wi-Fi and Mobile Data!**
-* The AI model, camera engine, sounds, and UI are fully cached on your phone's storage. It needs zero network connection to operate.
+## Development
 
----
+Serve this folder over HTTP on localhost or HTTPS on a phone. Camera access on
+a remote device needs a secure context. GitHub Pages publishes a versioned copy
+using `scripts/prepare-release.cjs`, with `GITHUB_SHA` supplied by Actions.
 
-### Step 4: Position on Your Balcony
-1. Prop the phone up on your balcony window sill or rail pointing at the ledge where pigeons try to land.
-2. Plug the phone into a charger so it stays powered 24/7.
-3. Open **Pigeon Guard**.
-4. Adjust the **Balcony Railing Zone (ROI)** sliders on the screen so the green box covers just your railing/ledge (birds flying high in the sky outside this box will be ignored).
-5. Tap **"START PIGEON GUARD"**:
-   * The app will activate the **Screen Wake Lock** (the screen won't turn off).
-   * It will begin real-time on-device bird detection.
-   * As soon as a pigeon steps into your balcony zone, it blasts the predator sound / alarm from the phone's speaker at maximum volume and logs a timestamped snapshot!
+Run `node tests/detection.cjs`, `node tests/live-performance.cjs`, and
+`node tests/yolox.cjs` for detection plumbing/decoder checks. Browser tests
+`tests/offline-browser.cjs` and `tests/model-browser.cjs` need Playwright and
+Chrome (`BROWSER_EXECUTABLE` can override its default Windows path). The latter
+loads and executes the actual YOLOX model and checks offline inference and
+model switching. These checks do not replace accuracy testing on unseen video
+or speed testing on the deployed device.
 
----
-
-## 🛠 Features
-
-* **On-Device AI Vision:** Real-time object detection running locally on the phone's GPU (WebGL) searching specifically for birds/pigeons.
-* **Smart Balcony Zone (ROI):** Define your railing boundary with touch sliders to prevent false alarms from distant flying birds.
-* **Predator Sound System:**
-  * 🦅 **Peregrine Falcon / Hawk Screech:** Natural raptor alarm call that pigeons instinctively flee from.
-  * 🚨 **High-Intensity Alarm Burst:** Sudden startle tone.
-  * 📡 **Ultrasonic Sweep (14-16kHz):** High-frequency disorienting pulse.
-  * 🔀 **Anti-Habituation Randomizer:** Randomly selects sounds so pigeons never get used to one tone.
-* **Camera Flash Strobe:** Optional strobe light pulse using the phone's camera flash to scare pigeons in low light.
-* **Intruder Photo Gallery:** Automatically saves snapshots of scared pigeons with timestamps directly on the phone.
-* **Screen Wake Lock:** Prevents Android from dimming or locking the screen while guarding your balcony.
-
----
-
-## 💻 Testing on Your PC / Laptop First
-You can also open and test the app right on your PC's browser with a webcam:
-```
-http://localhost:8000
-```
-Use the **"Test Alarm Sound"** or **"Test Detection"** buttons to verify the predator screams and detection sequence.
+Model/runtime provenance and licence notices are in [static/ai](static/ai/README.md).

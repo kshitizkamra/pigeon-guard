@@ -1,8 +1,10 @@
-const CACHE_NAME = 'pigeon-guard-v15';
+const CACHE_NAME = 'pigeon-guard-v16';
 const MODEL_CACHE = 'pigeon-guard-models-v1';
 const ASSETS_TO_CACHE = [
   './index.html', './manifest.json',
   './static/tf.min.js', './static/coco-ssd.min.js',
+  './static/ai/yolox-detector.js', './static/ai/yolox-worker.js',
+  './static/ai/ort.wasm.min.js', './static/ai/ort-wasm-simd-threaded.mjs',
   './static/sounds/falcon_screech.wav', './static/sounds/alarm_burst.wav',
   './static/sounds/ultrasonic_sweep.wav',
   './static/icon-192.png', './static/icon-512.png'
@@ -31,7 +33,8 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   const isLocal = url.origin === self.location.origin && url.href.startsWith(self.registration.scope);
-  const isModel = url.hostname === 'storage.googleapis.com' || url.hostname === 'tfhub.dev';
+  const isModel = url.hostname === 'storage.googleapis.com' || url.hostname === 'tfhub.dev' ||
+    (isLocal && /\/static\/ai\/[^/]+\.(onnx|wasm)$/.test(url.pathname));
   if (!isLocal && !isModel) return;
   event.respondWith((async () => {
     const cache = await caches.open(isModel ? MODEL_CACHE : CACHE_NAME);
